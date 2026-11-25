@@ -9,7 +9,9 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      - "${BIND_ADDR:-0.0.0.0}:${WEB_PORT:-8088}:8080"
+      - "${BIND_ADDR:-0.0.0.0}:${WEB_PORT:-8666}:8080"
+    networks:
+      - highfishNetwork
     environment:
       TZ: Europe/Berlin
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Bitte ADMIN_PASSWORD mit mindestens 12 Zeichen in Portainer setzen}
@@ -35,5 +37,9 @@ services:
       options:
         max-size: 10m
         max-file: '3'
+networks:
+  highfishNetwork:
+    external: true
+    name: highfishNetwork
 volumes:
   cariddi_data:
