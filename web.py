@@ -12,6 +12,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -27,14 +28,14 @@ ALLOW_PRIVATE = os.getenv('ALLOW_PRIVATE_TARGETS', 'false').lower() == 'true'
 COOKIE_SECURE = os.getenv('COOKIE_SECURE', 'false').lower() == 'true'
 TIMEOUT = max(60, min(int(os.getenv('SCAN_TIMEOUT_SECONDS', '1800')), 86400))
 RUN_ID = re.compile(r'^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$')
-ROUTE = re.compile(r'^/run/([^/]+)(/(stdout|stderr)[.]log)?$')
+ROUTE = re.compile(r'^/run/([^/]+)(/(stdout|stderr)[.]log|/report)?$')
 LOCK = threading.Lock()
 CURRENT = {'id': None, 'proc': None, 'stop': False}
 SESSIONS = {}
 FAILS = {}
 esc = html.escape
 CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-CSS = 'body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;margin:0}main{max-width:900px;margin:auto;padding:1rem}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}.card{background:#1e293b;border-radius:10px;padding:1rem;margin-bottom:1rem}label{display:block;margin:.5rem 0 .2rem}input,select,textarea{width:100%;box-sizing:border-box;padding:.5rem;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0}.chk{display:flex;gap:.5rem;align-items:center}.chk input{width:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.5rem}button{margin-top:1rem;padding:.6rem 1.2rem;border:0;border-radius:6px;background:#2563eb;color:#fff;font-size:1rem}button.danger{background:#dc2626}button.link{background:none;margin:0;color:#93c5fd}a{color:#93c5fd}pre{background:#0f172a;padding:.6rem;border-radius:6px;overflow:auto;max-height:22rem;white-space:pre-wrap;word-break:break-all}.err{background:#7f1d1d;padding:.6rem;border-radius:6px}.warn{background:#78350f;padding:.6rem;border-radius:6px}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.4rem;border-bottom:1px solid #334155}'
+CSS = 'body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;margin:0}main{max-width:900px;margin:auto;padding:1rem}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}.card{background:#1e293b;border-radius:10px;padding:1rem;margin-bottom:1rem}label{display:block;margin:.5rem 0 .2rem}input,select,textarea{width:100%;box-sizing:border-box;padding:.5rem;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0}.chk{display:flex;gap:.5rem;align-items:center}.chk input{width:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.5rem}button{margin-top:1rem;padding:.6rem 1.2rem;border:0;border-radius:6px;background:#2563eb;color:#fff;font-size:1rem}button.danger{background:#dc2626}button.link{background:none;margin:0;color:#93c5fd}a{color:#93c5fd}pre{background:#0f172a;padding:.6rem;border-radius:6px;overflow:auto;max-height:22rem;white-space:pre-wrap;word-break:break-all}.err{background:#7f1d1d;padding:.6rem;border-radius:6px}.warn{background:#78350f;padding:.6rem;border-radius:6px}.sum{border:2px solid #2563eb}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.4rem;border-bottom:1px solid #334155;word-break:break-all}'
 
 
 def now():
@@ -204,6 +205,127 @@ def tail(path, lines=150, size=65536):
     return NL.join(data.decode('utf-8', 'replace').split(NL)[-lines:])
 
 
+def mask(s):
+    return s[:4] + '***' + ' (' + str(len(s)) + ' Zeichen)' if len(s) > 8 else '***'
+
+
+def parse_results(path, limit=20000000):
+    res = {'urls': 0, 'bad': 0, 'status': {}, 'hosts': {}, 'secrets': [], 'errors': [], 'infos': [], 'files': [], 'params': [], 'attacks': {}, 'truncated': False}
+    try:
+        with open(path, 'rb') as f:
+            data = f.read(limit + 1)
+    except OSError:
+        return res
+    if len(data) > limit:
+        res['truncated'] = True
+        data = data[:limit]
+    for line in data.decode('utf-8', 'replace').split(NL):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            d = json.loads(line)
+            url = str(d['url'])
+            res['urls'] += 1
+            st = str(d.get('status_code', '?'))
+            res['status'][st] = res['status'].get(st, 0) + 1
+            host = urlsplit(url).netloc
+            res['hosts'][host] = res['hosts'].get(host, 0) + 1
+            m = d.get('matches') or {}
+            for key in ('secrets', 'errors', 'infos'):
+                for x in m.get(key) or []:
+                    res[key].append((url, str(x.get('name', '')), str(x.get('match', ''))))
+            ft = m.get('filetype')
+            if ft:
+                res['files'].append((int(ft.get('severity', 0)), str(ft.get('extension', '')), url))
+            for p in m.get('parameters') or []:
+                at = [str(a) for a in p.get('attacks') or []]
+                res['params'].append((url, str(p.get('name', '')), ', '.join(at)))
+                for a in at:
+                    res['attacks'][a] = res['attacks'].get(a, 0) + 1
+        except (TypeError, AttributeError, ValueError, KeyError):
+            res['bad'] += 1
+    return res
+
+
+def duration(m):
+    try:
+        a = dt.datetime.fromisoformat(m['created'])
+        b = dt.datetime.fromisoformat(m['finished_at'])
+        s = int((b - a).total_seconds())
+        return '%d min %d s' % (s // 60, s % 60)
+    except (KeyError, ValueError, TypeError):
+        return '-'
+
+
+def table(head, rows, cap=200):
+    if not rows:
+        return '<p>Keine Treffer.</p>'
+    b = '<table><tr>' + ''.join('<th>' + esc(h) + '</th>' for h in head) + '</tr>'
+    for r in rows[:cap]:
+        b += '<tr>' + ''.join('<td>' + esc(str(c)) + '</td>' for c in r) + '</tr>'
+    b += '</table>'
+    if len(rows) > cap:
+        b += '<p>Angezeigt werden die ersten ' + str(cap) + ' von ' + str(len(rows)) + ' Eintraegen. Alle Daten: stdout.log herunterladen.</p>'
+    return b
+
+
+def sev_label(n):
+    if n <= 2:
+        return str(n) + ' (sehr interessant)'
+    if n >= 6:
+        return str(n) + ' (wenig interessant)'
+    return str(n)
+
+
+def report_page(csrf, rid):
+    m = load_meta(rid)
+    if not m:
+        return None
+    r = parse_results(RUNS / rid / 'stdout.log')
+    args = m.get('args', [])
+    st = m.get('status', '?')
+    b = top(csrf) + '<p><a href=/run/' + rid + '>Zurueck zum Lauf</a></p><h1>Ergebnisbericht</h1>'
+    b += '<p>Lauf ' + esc(rid) + ' | Status: <b>' + esc(st) + '</b></p>'
+    if st == 'running':
+        b += '<p class=warn>Der Scan laeuft noch. Der Bericht zeigt den bisherigen Zwischenstand.</p>'
+    if r['truncated']:
+        b += '<p class=warn>Die Ausgabe ist sehr gross: ausgewertet wurden nur die ersten 20 MB.</p>'
+    if r['bad']:
+        b += '<p class=warn>' + str(r['bad']) + ' Zeilen der Ausgabe waren keine gueltigen Ergebnisse und wurden uebersprungen.</p>'
+    off = [label for flag, label in (('-e', 'Endpoints'), ('-s', 'Secrets'), ('-err', 'Fehlermeldungen'), ('-info', 'Infos')) if flag not in args]
+    if off:
+        b += '<p class=warn>In diesem Lauf nicht aktiviert: ' + ', '.join(off) + '. Leere Abschnitte bedeuten dort: nicht gesucht, nicht: nichts gefunden.</p>'
+    b += '<div class=card><h2>Secrets</h2><p>Treffer werden gekuerzt angezeigt. Den vollen Wert enthaelt stdout.log.</p>' + table(['URL', 'Typ', 'Treffer (gekuerzt)'], [(u, n, mask(x)) for u, n, x in r['secrets']]) + '</div>'
+    b += '<div class=card><h2>Fehlermeldungen</h2>' + table(['URL', 'Typ', 'Treffer'], r['errors']) + '</div>'
+    b += '<div class=card><h2>Infos</h2>' + table(['URL', 'Typ', 'Treffer'], r['infos']) + '</div>'
+    b += '<div class=card><h2>Auffaellige Parameter</h2>' + table(['URL', 'Parameter', 'Moegliche Angriffsarten'], r['params']) + '</div>'
+    b += '<div class=card><h2>Interessante Dateien</h2>' + table(['Stufe', 'Endung', 'URL'], [(sev_label(s), e, u) for s, e, u in sorted(r['files'])]) + '</div>'
+    hosts = sorted(r['hosts'].items(), key=lambda x: -x[1])
+    sev = {}
+    for s, e, u in r['files']:
+        sev[s] = sev.get(s, 0) + 1
+    facts = [('Status / Exitcode', st + ' / ' + str(m.get('exit_code', '-'))), ('Dauer', duration(m)), ('Ziele', len(m.get('targets', []))), ('Gefundene URLs', r['urls']), ('Hosts', len(hosts)), ('Secrets', len(r['secrets'])), ('Fehlermeldungen', len(r['errors'])), ('Infos', len(r['infos'])), ('Auffaellige Parameter', len(r['params'])), ('Interessante Dateien', len(r['files']))]
+    b += '<div class="card sum"><h2>Zusammenfassung</h2>' + table(['Kennzahl', 'Wert'], facts)
+    b += '<h3>HTTP-Statuscodes</h3>' + table(['Statuscode', 'Anzahl'], sorted(r['status'].items()))
+    b += '<h3>Hosts (Top 10)</h3>' + table(['Host', 'URLs'], hosts[:10])
+    b += '<h3>Angriffsarten laut Parameter-Heuristik</h3>' + table(['Art', 'Anzahl'], sorted(r['attacks'].items(), key=lambda x: -x[1]))
+    b += '<h3>Dateien nach Stufe</h3>' + table(['Stufe', 'Anzahl'], [(sev_label(k), v) for k, v in sorted(sev.items())])
+    notes = []
+    if r['secrets']:
+        notes.append('Secrets: Treffer sind Kandidaten und koennen Fehlalarme sein. Pruefen; echte Zugangsdaten sofort ersetzen oder widerrufen.')
+    if r['errors']:
+        notes.append('Fehlermeldungen koennen interne Pfade oder Technologien preisgeben.')
+    if r['files']:
+        notes.append('Dateien der Stufen 1 bis 2 (z. B. .env, .git, Backups, Konfigurationen) zuerst pruefen.')
+    if r['params']:
+        notes.append('Parameter-Treffer sind nur Hinweise auf moegliche Schwachstellenklassen, kein Nachweis.')
+    if not (r['secrets'] or r['errors'] or r['files'] or r['params'] or r['infos']):
+        notes.append('Keine Auffaelligkeiten in den aktivierten Suchen. Das ist kein Nachweis der Sicherheit: Tiefe, Zeitlimit und Scope begrenzen das Ergebnis.')
+    b += '<h3>Hinweise</h3><ul>' + ''.join('<li>' + esc(n) + '</li>' for n in notes) + '</ul></div>'
+    return page('Bericht ' + rid, b, 5 if st == 'running' else 0)
+
+
 def page(title, body, refresh=0):
     meta = '<meta http-equiv=refresh content=%d>' % refresh if refresh else ''
     return '<!doctype html><html lang=de><head><meta charset=utf-8>' + "<meta name=viewport content='width=device-width,initial-scale=1'>" + meta + '<title>' + esc(title) + '</title><style>' + CSS + '</style></head><body><main>' + body + '</main></body></html>'
@@ -260,6 +382,7 @@ def run_page(csrf, rid):
     st = m.get('status', '?')
     b = top(csrf) + '<p><a href=/>Zurueck</a></p><div class=card><h2>Lauf ' + esc(rid) + '</h2>'
     b += '<p>Status: <b>' + esc(st) + '</b> | Exit: ' + esc(str(m.get('exit_code', '-'))) + '</p>'
+    b += '<p><a href=/run/' + rid + '/report><b>Ergebnisbericht (lesbar, mit Zusammenfassung)</b></a></p>'
     b += '<p>Start: ' + esc(m.get('created', '')) + ' | Ende: ' + esc(m.get('finished_at', '-')) + '</p>'
     b += '<p>Ziele:</p><pre>' + esc(NL.join(m.get('targets', []))) + '</pre><p>Argumente: <code>' + esc(' '.join(m.get('args', []))) + '</code></p>'
     if m.get('error'):
@@ -328,16 +451,21 @@ class H(http.server.BaseHTTPRequestHandler):
         m = ROUTE.match(path)
         if m and RUN_ID.match(m.group(1)):
             rid, fname = m.group(1), m.group(3)
-            if fname:
+            if m.group(2) == '/report':
+                body = report_page(s['csrf'], rid)
+                if body:
+                    return self.send(200, body)
+            elif fname:
                 f = RUNS / rid / (fname + '.log')
                 if not f.is_file():
                     return self.send(404, 'nicht gefunden', 'text/plain')
                 with open(f, 'rb') as fh:
                     data = fh.read(20000000)
                 return self.send(200, data, 'text/plain; charset=utf-8', (('Content-Disposition', 'attachment; filename=cariddi-' + rid + '-' + fname + '.log'),))
-            body = run_page(s['csrf'], rid)
-            if body:
-                return self.send(200, body)
+            else:
+                body = run_page(s['csrf'], rid)
+                if body:
+                    return self.send(200, body)
         self.send(404, 'nicht gefunden', 'text/plain')
 
     def do_POST(self):
@@ -387,13 +515,25 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send(404, 'nicht gefunden', 'text/plain')
 
 
+def selftest():
+    args = build_args({})
+    assert args[:2] == ['-c', '5'] and '-json' in args
+    assert RUN_ID.match('20260101T000000Z-0123abcd')
+    assert mask('abcdefghijkl').startswith('abcd***')
+    sample = {'url': 'https://a.example/x', 'method': 'GET', 'status_code': 200, 'matches': {'secrets': [{'name': 'k', 'match': 'abcdefghijkl'}], 'filetype': {'extension': 'env', 'severity': 1}, 'parameters': [{'name': 'id', 'attacks': ['SQLi', 'XSS']}]}}
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / 'o.log'
+        p.write_text(json.dumps(sample) + NL + 'noise' + NL)
+        r = parse_results(p)
+        assert r['urls'] == 1 and r['bad'] == 1 and len(r['secrets']) == 1
+        assert r['attacks'].get('SQLi') == 1 and r['files'][0][0] == 1
+    print('selftest ok')
+    return 0
+
+
 def main():
     if '--selftest' in sys.argv:
-        args = build_args({})
-        assert args[:2] == ['-c', '5'] and '-json' in args
-        assert RUN_ID.match('20260101T000000Z-0123abcd')
-        print('selftest ok')
-        return 0
+        return selftest()
     if len(PASSWORD) < 6:
         print('ADMIN_PASSWORD fehlt oder ist kuerzer als 6 Zeichen', flush=True)
         return 2

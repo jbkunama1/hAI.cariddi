@@ -15,10 +15,20 @@ Nach dem Deployment: `http://<Host>:8666` (Port ueber `WEB_PORT` aenderbar).
 - Optionen als Formular: Parallelitaet, Delay, Tiefe, Timeout, Endpoints, Secrets, Fehler, Infos, Dateiendungen, zufaelliger User-Agent, optional Intensiv-Modus (siehe ALLOWED_HOSTS)
 - Scan starten und stoppen; es laeuft immer nur ein Scan gleichzeitig
 - Laufhistorie mit Status, Exitcode, Zielen, Argumenten, stdout/stderr (Ende der Logs, Auto-Refresh waehrend des Laufs) und Download
+- Lesbarer Ergebnisbericht pro Lauf (siehe unten)
 - Einzelne Laeufe loeschen
 - Vor jedem Start muss die Berechtigung fuer alle Ziele bestaetigt werden
 
 Es gibt bewusst kein Freitextfeld fuer beliebige Kommandozeilenargumente: Optionen werden serverseitig geprueft und in eine feste Argumentliste uebersetzt (keine Shell).
+
+## Ergebnisbericht
+
+Auf der Seite eines Laufs fuehrt der Link "Ergebnisbericht" zu einer aufbereiteten Auswertung der Cariddi-JSON-Ausgabe (`stdout.log`). Die Abschnitte folgen in dieser Reihenfolge: Secrets, Fehlermeldungen, Infos, auffaellige Parameter (mit moeglichen Angriffsarten laut Cariddi-Heuristik), interessante Dateien nach Stufe (1 = sehr interessant, 7 = unwichtig). Am Ende steht die Zusammenfassung mit Kennzahlen (Status, Dauer, Ziele, URLs, Hosts, Treffer je Kategorie), HTTP-Statuscodes, Top-10-Hosts, Angriffsarten, Dateien nach Stufe und Hinweisen.
+
+- Secret-Treffer werden gekuerzt angezeigt (erste 4 Zeichen und Laenge); der volle Wert steht nur in der heruntergeladenen `stdout.log`.
+- Der Bericht weist darauf hin, welche Suchen im Lauf nicht aktiviert waren. Ein leerer Abschnitt dort bedeutet "nicht gesucht".
+- Treffer sind Kandidaten der Cariddi-Heuristik und keine bestaetigten Schwachstellen; Fehlalarme sind moeglich. Keine Treffer ist kein Sicherheitsnachweis.
+- Pro Tabelle werden maximal 200 Zeilen gezeigt; ausgewertet werden hoechstens die ersten 20 MB der Ausgabe. Laeuft ein Scan noch, zeigt der Bericht den Zwischenstand und aktualisiert sich automatisch.
 
 ## Netzwerk
 
@@ -26,7 +36,7 @@ Der Stack haengt am externen Docker-Netzwerk `highfishNetwork`. Dieses Netzwerk 
 
 ## Build und Deployment
 
-Push auf main startet `.github/workflows/build.yml`: Python-Syntax, Compose-Validierung, Selftest, HTTP-Smoke-Test (Healthcheck und Login-Redirect) und anschliessend Veroeffentlichung fuer AMD64/ARM64 nach `ghcr.io/jbkunama1/hai.cariddi` (Tags `latest`, `sha-<commit>`, `v*`). Ein Commit ist noch kein erfolgreicher Build: erst den gruenen Workflow und das Package pruefen. GHCR-Pakete koennen anfangs privat sein: Sichtbarkeit auf oeffentlich stellen oder GHCR in Portainer mit einem Token (read:packages) hinterlegen.
+Push auf main startet `.github/workflows/build.yml`: Python-Syntax, Compose-Validierung, Selftest (inklusive Ergebnis-Parser), HTTP-Smoke-Test (Healthcheck und Login-Redirect) und anschliessend Veroeffentlichung fuer AMD64/ARM64 nach `ghcr.io/jbkunama1/hai.cariddi` (Tags `latest`, `sha-<commit>`, `v*`). Ein Commit ist noch kein erfolgreicher Build: erst den gruenen Workflow und das Package pruefen. GHCR-Pakete koennen anfangs privat sein: Sichtbarkeit auf oeffentlich stellen oder GHCR in Portainer mit einem Token (read:packages) hinterlegen.
 
 Portainer: Stacks > Add stack > Repository
 
@@ -66,6 +76,7 @@ Portainer: Stacks > Add stack > Repository
 - Container startet nicht: Logs pruefen; `ADMIN_PASSWORD` fehlt oder ist zu kurz, oder Compose meldet die Pflichtvariable.
 - Deployment meldet `network highfishNetwork not found`: Netzwerk in Portainer anlegen (Name exakt, gleiche Gross-/Kleinschreibung) und Stack neu deployen.
 - Option Intensiv fehlt in der UI: `ALLOWED_HOSTS` ist leer; auf `*` oder eine Domain-Liste setzen und Stack neu deployen.
+- Bericht ist leer: Lauf pruefen (Status, stderr), und ob Endpoints/Secrets/Fehler/Infos im Lauf aktiviert waren; der Bericht nennt nicht aktivierte Suchen.
 - Login nicht moeglich nach HTTPS-Umstellung: `COOKIE_SECURE=true` nur mit HTTPS setzen.
 - manifest unknown: GHCR-Build/Tag pruefen; unauthorized: Package-Sichtbarkeit oder Portainer-Registry-Login pruefen.
 - Lauf bleibt `interrupted`: Container wurde waehrend des Scans beendet; Ergebnis ist unvollstaendig.
