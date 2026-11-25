@@ -18,10 +18,10 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - name: Validate runner and Compose
+      - name: Validate Python and Compose
         run: |
-          python -m py_compile runner.py
-          docker compose config --quiet
+          python -m py_compile runner.py web.py
+          ADMIN_PASSWORD=ci-check-only-password docker compose config --quiet
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Build smoke-test image
@@ -32,11 +32,16 @@ jobs:
           tags: cariddi:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Smoke test without network or scans
+      - name: Smoke tests without scans
         run: |
           docker run --rm --network none --entrypoint cariddi cariddi:test -version
-          docker run --rm --network none cariddi:test --help
+          docker run --rm --network none cariddi:test --selftest
           docker run --rm --network none --entrypoint sh cariddi:test -c 'test -s /usr/share/cariddi/source/LICENSE'
+          docker run -d --name ui -e ADMIN_PASSWORD=ci-check-only-password -p 18080:8080 cariddi:test
+          sleep 4
+          curl -fsS http://127.0.0.1:18080/healthz
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/)" = 303
+          docker rm -f ui
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3

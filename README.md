@@ -1,24 +1,30 @@
 # hAI.cariddi
 
-Cariddi als Portainer-Repository-Stack mit automatischem GHCR-Build. Keine Weboberflaeche, kein offener Port, kein Docker-Socket. Portainer zieht nur das fertige Image und baut nicht lokal.
+Cariddi als Portainer-Repository-Stack mit Weboberflaeche und automatischem GHCR-Build. Portainer zieht nur das fertige Image und baut nicht lokal. Kein Docker-Socket.
 
 ## Herkunft
 
-Upstream: https://github.com/edoardottt/cariddi
+Upstream: https://github.com/edoardottt/cariddi (GPL-3.0). Fixierter Quellstand: `39aebc1ce7e43a2c59de194d0d1e29a034c8ab3c`; das Dockerfile prueft den Commit vor dem Build. Der verwendete Upstream-Quelltext inklusive LICENSE liegt im Image unter `/usr/share/cariddi/source`. Die eigenen Wrapper- und Deployment-Dateien (web.py, runner.py, Compose, Workflow) stehen unter MIT, siehe LICENSE.
 
-Fixierter Quellstand: `39aebc1ce7e43a2c59de194d0d1e29a034c8ab3c`. Das Dockerfile prueft den Commit vor dem Build. Der vollstaendige verwendete Upstream-Quelltext einschliesslich LICENSE und go.mod/go.sum liegt im Image unter `/usr/share/cariddi/source`. Cariddi ist GPL-3.0-lizenziert; seine Urheber- und Lizenzhinweise bleiben erhalten. Die eigenen Wrapper- und Deployment-Dateien dieses Repositorys stehen unter MIT, siehe LICENSE.
+## Weboberflaeche
 
-## Build
+Nach dem Deployment: `http://<Host>:8088` (Port ueber `WEB_PORT` aenderbar).
 
-Push auf main startet `.github/workflows/build.yml`: Python-Syntax und Compose-Konfiguration pruefen, AMD64-Smoke-Test ohne Netzwerk und anschliessend AMD64/ARM64 nach GHCR publizieren. Tags: `latest`, `sha-<commit>` und Versions-Tags bei `v*`. Fuer Builds genuegt der automatische GITHUB_TOKEN mit packages:write; keine Zugangsdaten ins Repository schreiben.
+- Login mit `ADMIN_PASSWORD` (Pflicht, mindestens 12 Zeichen; ohne Passwort startet der Container nicht)
+- Ziele eingeben: eine http(s)-URL pro Zeile, maximal 50, keine Zugangsdaten in URLs
+- Optionen als Formular: Parallelitaet, Delay, Tiefe, Timeout, Endpoints, Secrets, Fehler, Infos, Dateiendungen, zufaelliger User-Agent
+- Scan starten und stoppen; es laeuft immer nur ein Scan gleichzeitig
+- Laufhistorie mit Status, Exitcode, Zielen, Argumenten, stdout/stderr (Ende der Logs, Auto-Refresh waehrend des Laufs) und Download
+- Einzelne Laeufe loeschen
+- Vor jedem Start muss die Berechtigung fuer alle Ziele bestaetigt werden
 
-Image: `ghcr.io/jbkunama1/hai.cariddi:latest`
+Es gibt bewusst kein Freitextfeld fuer beliebige Kommandozeilenargumente: Optionen werden serverseitig geprueft und in eine feste Argumentliste uebersetzt (keine Shell).
 
-Wichtig: Ein Commit ist noch kein erfolgreicher Image-Build. Vor dem Deployment den gruenen Workflow und das veroeffentlichte Package kontrollieren. GHCR-Pakete koennen anfangs privat sein: entweder in den Package-Einstellungen oeffentlich schalten oder GHCR in Portainer mit Benutzername und einem Token mit read:packages hinterlegen.
+## Build und Deployment
 
-## Portainer: direkt aus Git
+Push auf main startet `.github/workflows/build.yml`: Python-Syntax, Compose-Validierung, Selftest, HTTP-Smoke-Test (Healthcheck und Login-Redirect) und anschliessend Veroeffentlichung fuer AMD64/ARM64 nach `ghcr.io/jbkunama1/hai.cariddi` (Tags `latest`, `sha-<commit>`, `v*`). Ein Commit ist noch kein erfolgreicher Build: erst den gruenen Workflow und das Package pruefen. GHCR-Pakete koennen anfangs privat sein: Sichtbarkeit auf oeffentlich stellen oder GHCR in Portainer mit einem Token (read:packages) hinterlegen.
 
-Stacks > Add stack > Repository
+Portainer: Stacks > Add stack > Repository
 
 | Einstellung | Wert |
 |---|---|
@@ -27,47 +33,32 @@ Stacks > Add stack > Repository
 | Reference | refs/heads/main |
 | Compose path | docker-compose.yml |
 
-Der Stack startet standardmaessig im Idle-Modus. Es wird kein Scan ausgefuehrt. Keine Portfreigabe erforderlich. Ergebnisse bleiben im benannten Volume cariddi_data des Stacks erhalten. Nicht das Volume loeschen, wenn Ergebnisse erhalten bleiben sollen.
-
-## Konfiguration in Portainer
+## Umgebungsvariablen
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
+| ADMIN_PASSWORD | Pflicht | Login-Passwort, mindestens 12 Zeichen |
+| WEB_PORT | 8088 | Host-Port der Oberflaeche |
+| BIND_ADDR | 0.0.0.0 | Host-Adresse; z. B. 127.0.0.1 hinter Reverse-Proxy |
+| ALLOWED_HOSTS | leer | Komma-Liste erlaubter Domains inkl. Subdomains (z. B. `example.com`); leer = keine Einschraenkung. Nur wenn gesetzt, ist -intensive erlaubt |
+| ALLOW_PRIVATE_TARGETS | false | true erlaubt private/lokale Adressen (Heimnetz-Ziele) |
+| COOKIE_SECURE | false | true setzen, sobald die UI nur ueber HTTPS erreichbar ist |
+| SCAN_TIMEOUT_SECONDS | 1800 | Maximale Laufzeit eines Scans (60 bis 86400) |
 | IMAGE_TAG | latest | Fuer reproduzierbare Deployments sha-Tag verwenden |
-| SCAN_ENABLED | false | Nur true aktiviert automatische Ausfuehrung beim Containerstart |
-| CARIDDI_TARGETS | leer | Eine ausdruecklich autorisierte http(s)-URL pro Zeile |
-| CARIDDI_ARGS_JSON | siehe Compose | JSON-Array mit Cariddi-Argumenten; kein Shell-eval |
-| SCAN_INTERVAL_SECONDS | 0 | 0: einmal pro Containerstart, dann idle; sonst Pause nach jedem Lauf |
-| SCAN_TIMEOUT_SECONDS | 1800 | Maximale Laufzeit eines Scans |
-
-Standardargumente: `["-c","5","-d","1","-md","2","-t","10","-e","-json"]`. Das begrenzt Parallelitaet und Tiefe; es aktiviert kein intensives Subdomain-Crawling. Fuer weitere Optionen die Upstream-Dokumentation lesen.
-
-Fuer einen gewollten Einmallauf Ziele setzen, SCAN_ENABLED=true und SCAN_INTERVAL_SECONDS=0 einstellen. Achtung: Neustart oder Redeploy startet bei weiterhin aktiviertem SCAN_ENABLED erneut einen Scan! Danach wieder false setzen, wenn das nicht gewuenscht ist.
-
-Alternativ bei SCAN_ENABLED=false ueber Portainer > Container > Console einen expliziten Lauf starten:
-
-```sh
-python /app/runner.py --once
-```
-
-Dabei werden die konfigurierten Umgebungsvariablen genutzt. Nicht parallel zum automatischen Runner starten. Keine Beispielziele werden automatisch angegriffen.
-
-## Ergebnisse und Diagnose
-
-Jeder Lauf erstellt `/data/runs/<UTC-Zeit>-<ID>/` mit stdout.log, stderr.log und status.json (Status, Exitcode und Zeitstempel). stdout.log enthaelt bei -json die Cariddi-Ausgabe, ist aber nicht als einzelnes JSON-Dokument garantiert. Eigene Ausgabedateien mit -ot/-oh werden relativ zum Laufverzeichnis angelegt.
-
-```sh
-ls -lt /data/runs
-cat /data/runs/<Lauf-ID>/status.json
-cat /data/runs/<Lauf-ID>/stderr.log
-```
-
-Container-Logs zeigen Start/Ende und Konfigurationsfehler, nicht absichtlich alle moeglicherweise sensiblen Fundstellen. Ein laufender Idle-Container bestaetigt keinen erfolgreichen Scan; status.json pruefen. Exit 124 bedeutet Laufzeitlimit. Nach hartem Abbruch kann ein Status auf running stehen bleiben. Keine automatische Loeschung der Ergebnisse: Volume-Groesse ueberwachen und Aufbewahrung selbst festlegen.
-
-Bei Permission denied: Der Container arbeitet mit UID/GID 10001; das benannte Volume wird beim ersten Anlegen aus dem Image initialisiert. Bei eigenen Bind-Mounts muss das Ziel fuer 10001:10001 schreibbar sein.
-
-Bei manifest unknown zuerst erfolgreichen GHCR-Build und Image-Tag pruefen; bei unauthorized Package-Sichtbarkeit oder Portainer-Registry-Login pruefen. Updates ueber den Repository-Stack abrufen und das Image erneut ziehen lassen.
 
 ## Sicherheit
 
-Nur eigene Systeme oder explizit schriftlich freigegebene Ziele pruefen. Zielangaben ersetzen keine Scope-Freigabe; Cariddis Crawling-/Redirect-Verhalten ist keine Netzwerk-Sicherheitsgrenze. Fuer strikte Scopes ausgehenden Netzwerkzugriff zusaetzlich per Firewall begrenzen. Keine privilegierten Container, keine Host-Netzwerke, keine eingehenden Ports. Ergebnisse koennen Zugangsdaten und personenbezogene Daten enthalten: Zugriff beschraenken, nicht committen, Backups schuetzen. Keine Zugangsdaten in CARIDDI_TARGETS hinterlegen.
+- Die UI nicht ungeschuetzt ins Internet stellen: HTTPS ueber Reverse-Proxy oder Cloudflare Tunnel/Access davorschalten, dann `COOKIE_SECURE=true` und idealerweise `BIND_ADDR=127.0.0.1`. Ohne TLS laufen Passwort und Session unverschluesselt.
+- Anmeldung: Session-Cookie (HttpOnly, SameSite=Strict, 8 Stunden), CSRF-Token bei allen Aktionen, Sperre nach 5 Fehlversuchen pro IP und 5 Minuten. Hinter einem Proxy sieht der Container nur die Proxy-IP; die Sperre gilt dann gemeinsam.
+- Ziele werden per DNS aufgeloest; nicht-oeffentliche Adressen (localhost, RFC1918, Link-Local) sind standardmaessig blockiert. Das ist keine vollstaendige Netzwerkgrenze: Redirects, spaetere DNS-Aenderungen und gefundene Links koennen auf andere Hosts fuehren. Fuer strikte Scopes zusaetzlich ausgehenden Verkehr per Firewall begrenzen.
+- Sessions liegen im Speicher: ein Neustart meldet alle ab.
+- Nur eigene oder schriftlich freigegebene Ziele pruefen. Ergebnisse (Logs mit moeglichen Secrets) liegen im Volume `cariddi_data` unter `/data/runs`; Zugriff beschraenken, nicht committen, Backups schuetzen. Es gibt keine automatische Loeschung.
+
+## Diagnose
+
+- Container startet nicht: Logs pruefen; `ADMIN_PASSWORD` fehlt oder ist zu kurz, oder Compose meldet die Pflichtvariable.
+- Login nicht moeglich nach HTTPS-Umstellung: `COOKIE_SECURE=true` nur mit HTTPS setzen.
+- manifest unknown: GHCR-Build/Tag pruefen; unauthorized: Package-Sichtbarkeit oder Portainer-Registry-Login pruefen.
+- Lauf bleibt `interrupted`: Container wurde waehrend des Scans beendet; Ergebnis ist unvollstaendig.
+- Permission denied bei eigenen Bind-Mounts: Ziel muss fuer UID/GID 10001 schreibbar sein.
+- `runner.py` bleibt als Kommandozeilen-Alternative im Image (`python /app/runner.py --once` mit `CARIDDI_TARGETS` in der Container-Umgebung), ist aber im Standard-Stack nicht verdrahtet.

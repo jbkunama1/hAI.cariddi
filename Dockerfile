@@ -11,10 +11,11 @@ FROM python:3.13-alpine
 RUN apk add --no-cache ca-certificates tzdata && addgroup -g 10001 app && adduser -D -u 10001 -G app app && mkdir -p /data && chown app:app /data
 COPY --from=builder /out/cariddi /usr/local/bin/cariddi
 COPY --from=builder /src /usr/share/cariddi/source
-COPY runner.py /app/runner.py
+COPY runner.py web.py /app/
 LABEL org.opencontainers.image.source="https://github.com/jbkunama1/hAI.cariddi"
-LABEL org.opencontainers.image.description="Cariddi runner for Portainer"
+LABEL org.opencontainers.image.description="Cariddi with web UI for Portainer"
 WORKDIR /data
 USER 10001:10001
+EXPOSE 8080
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOME=/tmp
-ENTRYPOINT ["python", "/app/runner.py"]
+ENTRYPOINT ["python", "/app/web.py"]

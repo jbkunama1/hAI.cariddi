@@ -8,17 +8,24 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    ports:
+      - "${BIND_ADDR:-0.0.0.0}:${WEB_PORT:-8088}:8080"
     environment:
       TZ: Europe/Berlin
-      SCAN_ENABLED: ${SCAN_ENABLED:-false}
-      CARIDDI_TARGETS: ${CARIDDI_TARGETS:-}
-      CARIDDI_ARGS_JSON: '${CARIDDI_ARGS_JSON:-["-c","5","-d","1","-md","2","-t","10","-e","-json"]}'
-      SCAN_INTERVAL_SECONDS: ${SCAN_INTERVAL_SECONDS:-0}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Bitte ADMIN_PASSWORD mit mindestens 12 Zeichen in Portainer setzen}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
+      ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       SCAN_TIMEOUT_SECONDS: ${SCAN_TIMEOUT_SECONDS:-1800}
     volumes:
       - cariddi_data:/data
     tmpfs:
       - /tmp:size=64m,mode=1777
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     mem_limit: 512m
     cpus: 1.0
     pids_limit: 128
