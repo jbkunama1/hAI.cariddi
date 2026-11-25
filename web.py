@@ -394,8 +394,8 @@ def main():
         assert RUN_ID.match('20260101T000000Z-0123abcd')
         print('selftest ok')
         return 0
-    if len(PASSWORD) < 12:
-        print('ADMIN_PASSWORD fehlt oder ist kuerzer als 12 Zeichen', flush=True)
+    if len(PASSWORD) < 6:
+        print('ADMIN_PASSWORD fehlt oder ist kuerzer als 6 Zeichen', flush=True)
         return 2
     recover()
     srv = http.server.ThreadingHTTPServer(('0.0.0.0', int(os.getenv('PORT', '8080'))), H)

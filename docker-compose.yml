@@ -14,7 +14,7 @@ services:
       - highfishNetwork
     environment:
       TZ: Europe/Berlin
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Bitte ADMIN_PASSWORD mit mindestens 12 Zeichen in Portainer setzen}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Bitte ADMIN_PASSWORD mit mindestens 6 Zeichen in Portainer setzen}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
       ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-false}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
