@@ -78,7 +78,7 @@ def validate_targets(text):
         host = (u.hostname or '').lower()
         if u.scheme not in ('http', 'https') or not host or u.username or u.password:
             raise ValueError('Nur http(s)-URLs ohne Zugangsdaten: ' + line)
-        if ALLOWED and not any(host == a or host.endswith('.' + a) for a in ALLOWED):
+        if ALLOWED and '*' not in ALLOWED and not any(host == a or host.endswith('.' + a) for a in ALLOWED):
             raise ValueError('Host nicht in ALLOWED_HOSTS: ' + host)
         try:
             infos = socket.getaddrinfo(host, port or (443 if u.scheme == 'https' else 80), type=socket.SOCK_STREAM)
@@ -166,7 +166,7 @@ def start_job(form):
         raise ValueError('Die Berechtigung fuer alle Ziele muss bestaetigt werden')
     args = build_args(form)
     if '-intensive' in args and not ALLOWED:
-        raise ValueError('-intensive ist nur mit gesetzter ALLOWED_HOSTS-Liste erlaubt')
+        raise ValueError('-intensive ist nur mit gesetzter ALLOWED_HOSTS-Liste (oder *) erlaubt')
     rid = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8]
     with LOCK:
         if CURRENT['id']:

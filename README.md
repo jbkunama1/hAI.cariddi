@@ -12,7 +12,7 @@ Nach dem Deployment: `http://<Host>:8666` (Port ueber `WEB_PORT` aenderbar).
 
 - Login mit `ADMIN_PASSWORD` (Pflicht, mindestens 6 Zeichen; ohne Passwort startet der Container nicht)
 - Ziele eingeben: eine http(s)-URL pro Zeile, maximal 50, keine Zugangsdaten in URLs
-- Optionen als Formular: Parallelitaet, Delay, Tiefe, Timeout, Endpoints, Secrets, Fehler, Infos, Dateiendungen, zufaelliger User-Agent
+- Optionen als Formular: Parallelitaet, Delay, Tiefe, Timeout, Endpoints, Secrets, Fehler, Infos, Dateiendungen, zufaelliger User-Agent, optional Intensiv-Modus (siehe ALLOWED_HOSTS)
 - Scan starten und stoppen; es laeuft immer nur ein Scan gleichzeitig
 - Laufhistorie mit Status, Exitcode, Zielen, Argumenten, stdout/stderr (Ende der Logs, Auto-Refresh waehrend des Laufs) und Download
 - Einzelne Laeufe loeschen
@@ -44,7 +44,7 @@ Portainer: Stacks > Add stack > Repository
 | ADMIN_PASSWORD | Pflicht | Login-Passwort, mindestens 6 Zeichen |
 | WEB_PORT | 8666 | Host-Port der Oberflaeche |
 | BIND_ADDR | 0.0.0.0 | Host-Adresse; z. B. 127.0.0.1 hinter Reverse-Proxy |
-| ALLOWED_HOSTS | leer | Komma-Liste erlaubter Domains inkl. Subdomains (z. B. `example.com`); leer = keine Einschraenkung. Nur wenn gesetzt, ist -intensive erlaubt |
+| ALLOWED_HOSTS | leer | Komma-Liste erlaubter Domains inkl. Subdomains (z. B. `example.com`). Leer: alle oeffentlichen Hosts erlaubt, aber ohne Intensiv-Modus. `*`: alle Hosts erlaubt und Intensiv-Modus (-intensive) freigeschaltet |
 | ALLOW_PRIVATE_TARGETS | false | true erlaubt private/lokale Adressen (Heimnetz-Ziele) |
 | COOKIE_SECURE | false | true setzen, sobald die UI nur ueber HTTPS erreichbar ist |
 | SCAN_TIMEOUT_SECONDS | 1800 | Maximale Laufzeit eines Scans (60 bis 86400) |
@@ -54,6 +54,7 @@ Portainer: Stacks > Add stack > Repository
 
 - Die UI nicht ungeschuetzt ins Internet stellen: HTTPS ueber Reverse-Proxy oder Cloudflare Tunnel/Access davorschalten, dann `COOKIE_SECURE=true` und idealerweise `BIND_ADDR=127.0.0.1`. Ohne TLS laufen Passwort und Session unverschluesselt.
 - Die Mindestlaenge des Passworts betraegt nur 6 Zeichen. Kurze Passwoerter sind leicht zu erraten: fuer Erreichbarkeit ausserhalb des Heimnetzes ein deutlich laengeres Passwort waehlen und die UI zusaetzlich per Reverse-Proxy/Zugriffsschutz absichern.
+- Mit `ALLOWED_HOSTS=*` ist der Intensiv-Modus fuer beliebige Ziele moeglich: Cariddi crawlt dann auch Subdomains der Ziele (2nd-Level-Domain-Match). Das erweitert den Scan-Umfang erheblich. Nur Ziele eintragen, fuer die eine Berechtigung vorliegt, einschliesslich ihrer Subdomains.
 - Anmeldung: Session-Cookie (HttpOnly, SameSite=Strict, 8 Stunden), CSRF-Token bei allen Aktionen, Sperre nach 5 Fehlversuchen pro IP und 5 Minuten. Hinter einem Proxy sieht der Container nur die Proxy-IP; die Sperre gilt dann gemeinsam.
 - Ziele werden per DNS aufgeloest; nicht-oeffentliche Adressen (localhost, RFC1918, Link-Local) sind standardmaessig blockiert. Das ist keine vollstaendige Netzwerkgrenze: Redirects, spaetere DNS-Aenderungen und gefundene Links koennen auf andere Hosts fuehren. Fuer strikte Scopes zusaetzlich ausgehenden Verkehr per Firewall begrenzen.
 - Andere Container im Netzwerk highfishNetwork koennen die Oberflaeche ebenfalls erreichen; ALLOW_PRIVATE_TARGETS=true erlaubt zudem Scans gegen interne Docker-Adressen. Nur bewusst aktivieren.
@@ -64,6 +65,7 @@ Portainer: Stacks > Add stack > Repository
 
 - Container startet nicht: Logs pruefen; `ADMIN_PASSWORD` fehlt oder ist zu kurz, oder Compose meldet die Pflichtvariable.
 - Deployment meldet `network highfishNetwork not found`: Netzwerk in Portainer anlegen (Name exakt, gleiche Gross-/Kleinschreibung) und Stack neu deployen.
+- Option Intensiv fehlt in der UI: `ALLOWED_HOSTS` ist leer; auf `*` oder eine Domain-Liste setzen und Stack neu deployen.
 - Login nicht moeglich nach HTTPS-Umstellung: `COOKIE_SECURE=true` nur mit HTTPS setzen.
 - manifest unknown: GHCR-Build/Tag pruefen; unauthorized: Package-Sichtbarkeit oder Portainer-Registry-Login pruefen.
 - Lauf bleibt `interrupted`: Container wurde waehrend des Scans beendet; Ergebnis ist unvollstaendig.
