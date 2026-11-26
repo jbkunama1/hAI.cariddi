@@ -27,6 +27,7 @@ ALLOWED = [x.strip().lower() for x in os.getenv('ALLOWED_HOSTS', '').split(',') 
 ALLOW_PRIVATE = os.getenv('ALLOW_PRIVATE_TARGETS', 'false').lower() == 'true'
 COOKIE_SECURE = os.getenv('COOKIE_SECURE', 'false').lower() == 'true'
 TIMEOUT = max(60, min(int(os.getenv('SCAN_TIMEOUT_SECONDS', '1800')), 86400))
+RETENTION_DAYS = max(0, min(int(os.getenv('RETENTION_DAYS', '7')), 3650))
 RUN_ID = re.compile(r'^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$')
 ROUTE = re.compile(r'^/run/([^/]+)(/(stdout|stderr)[.]log|/report)?$')
 LOCK = threading.Lock()
@@ -35,7 +36,22 @@ SESSIONS = {}
 FAILS = {}
 esc = html.escape
 CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-CSS = 'body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;margin:0}main{max-width:900px;margin:auto;padding:1rem}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}.card{background:#1e293b;border-radius:10px;padding:1rem;margin-bottom:1rem}label{display:block;margin:.5rem 0 .2rem}input,select,textarea{width:100%;box-sizing:border-box;padding:.5rem;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0}.chk{display:flex;gap:.5rem;align-items:center}.chk input{width:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.5rem}button{margin-top:1rem;padding:.6rem 1.2rem;border:0;border-radius:6px;background:#2563eb;color:#fff;font-size:1rem}button.danger{background:#dc2626}button.link{background:none;margin:0;color:#93c5fd}a{color:#93c5fd}pre{background:#0f172a;padding:.6rem;border-radius:6px;overflow:auto;max-height:22rem;white-space:pre-wrap;word-break:break-all}.err{background:#7f1d1d;padding:.6rem;border-radius:6px}.warn{background:#78350f;padding:.6rem;border-radius:6px}.sum{border:2px solid #2563eb}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.4rem;border-bottom:1px solid #334155;word-break:break-all}'
+CSS = 'body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;margin:0}main{max-width:1200px;margin:auto;padding:1rem}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}.card{background:#1e293b;border-radius:10px;padding:1rem;margin-bottom:1rem}label{display:block;margin:.5rem 0 .2rem}input,select,textarea{width:100%;box-sizing:border-box;padding:.5rem;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0}.chk{display:flex;gap:.5rem;align-items:center}.chk input{width:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.5rem}button{margin-top:1rem;padding:.6rem 1.2rem;border:0;border-radius:6px;background:#2563eb;color:#fff;font-size:1rem}button.danger{background:#dc2626}button.link{background:none;margin:0;color:#93c5fd}a{color:#93c5fd}pre{background:#0f172a;padding:.6rem;border-radius:6px;overflow:auto;max-height:22rem;white-space:pre-wrap;word-break:break-all}.err{background:#7f1d1d;padding:.6rem;border-radius:6px}.warn{background:#78350f;padding:.6rem;border-radius:6px}.sum{border:2px solid #2563eb}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.4rem;border-bottom:1px solid #334155;word-break:break-all}small{color:#94a3b8}.layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:1rem;align-items:start}.help{position:sticky;top:1rem}.help dt{font-weight:600;margin-top:.7rem}.help dd{margin:0;font-size:.9rem}.help summary{cursor:pointer}.pro{color:#86efac}.con{color:#fca5a5}.tip{display:inline-block;position:relative;margin-left:.4rem;width:1.2rem;height:1.2rem;line-height:1.2rem;text-align:center;border-radius:50%;background:#334155;font-size:.8rem;cursor:help}.tip:hover::after,.tip:focus::after{content:attr(data-tip);position:absolute;left:1.6rem;top:-.4rem;width:270px;background:#020617;border:1px solid #475569;padding:.5rem;border-radius:6px;z-index:10;font-size:.85rem;white-space:normal;text-align:left;line-height:1.35}@media(max-width:900px){.layout{grid-template-columns:1fr}.help{position:static}}'
+
+OPT = {
+    'c': ('Parallelitaet (-c)', 'schneller, weil mehr Anfragen gleichzeitig laufen', 'mehr Last auf dem Ziel; Risiko von Sperren, Rate-Limits und Fehlern'),
+    'd': ('Delay in Sekunden (-d)', 'schont das Ziel und faellt weniger auf', 'macht den Scan deutlich langsamer'),
+    'md': ('Max. Tiefe (-md)', 'findet mehr versteckte Seiten', 'die Seitenzahl waechst mit jeder Ebene stark; laengere Laufzeit, groesserer Bericht'),
+    't': ('Timeout pro Anfrage (-t)', 'kurze Werte verhindern, dass langsame Seiten den Scan aufhalten', 'zu kurz: langsame Seiten werden verpasst'),
+    'rt': ('Max. Laufzeit (Minuten)', 'schuetzt vor endlosen Laeufen und blockierter Warteschlange', 'bei Ablauf wird der Scan abgebrochen; das Ergebnis ist unvollstaendig'),
+    'ext': ('Dateiendungen (-ext)', 'findet Backups, Konfigurationen und andere sensible Dateien', 'hoehere Stufen liefern viel Rauschen'),
+    'e': ('Endpoints (-e)', 'findet Parameter und moegliche Angriffsflaechen', 'etwas mehr Rechenaufwand; oft viele Treffer'),
+    's': ('Secrets (-s)', 'findet API-Keys, Tokens und Zugangsdaten im Quelltext', 'Fehlalarme moeglich; mehr Rechenaufwand'),
+    'err': ('Fehlermeldungen (-err)', 'zeigt Meldungen, die interne Pfade oder Technik verraten', 'viele Treffer, teils Fehlalarme'),
+    'info': ('Infos (-info)', 'findet z. B. E-Mail-Adressen und interne Hinweise', 'viel Rauschen'),
+    'rua': ('Zufaelliger User-Agent (-rua)', 'weniger Blockaden durch einfache Filter', 'verschleiert die Herkunft nicht und ersetzt keine Erlaubnis'),
+    'intensive': ('Intensiv (-intensive)', 'crawlt auch Subdomains und deckt mehr Scope ab', 'der Scan wird oft um ein Vielfaches groesser und laenger; nur mit Berechtigung fuer alle Subdomains'),
+}
 
 
 def now():
@@ -128,7 +144,55 @@ def recover():
                 save_meta(p.name, m)
 
 
-def run_job(rid, targets, args):
+def expires_in(m):
+    if RETENTION_DAYS == 0 or m.get('status') == 'running':
+        return None
+    try:
+        end = dt.datetime.fromisoformat(m.get('finished_at') or m['created'])
+    except (KeyError, ValueError, TypeError):
+        return None
+    return end + dt.timedelta(days=RETENTION_DAYS) - dt.datetime.now(dt.timezone.utc)
+
+
+def expiry_label(m):
+    if m.get('status') == 'running':
+        return '(laeuft)'
+    left = expires_in(m)
+    if left is None:
+        return '(wird nicht automatisch geloescht)'
+    days = -(-int(left.total_seconds()) // 86400)
+    if days <= 0:
+        return '(wird in Kuerze geloescht)'
+    return '(wird geloescht in ' + str(days) + (' Tag)' if days == 1 else ' Tagen)')
+
+
+def cleanup():
+    if RETENTION_DAYS == 0 or not RUNS.exists():
+        return 0
+    n = 0
+    for p in RUNS.iterdir():
+        if not RUN_ID.match(p.name) or p.name == CURRENT['id']:
+            continue
+        m = load_meta(p.name)
+        if not m or m.get('status') == 'running':
+            continue
+        left = expires_in(m)
+        if left is not None and left.total_seconds() <= 0:
+            shutil.rmtree(p, ignore_errors=True)
+            n += 1
+    return n
+
+
+def cleanup_loop():
+    while True:
+        try:
+            cleanup()
+        except Exception as exc:
+            print('Aufraeumen fehlgeschlagen: ' + str(exc), flush=True)
+        time.sleep(3600)
+
+
+def run_job(rid, targets, args, timeout):
     d = RUNS / rid
     meta = load_meta(rid) or {'id': rid}
     code, status = 1, 'failed'
@@ -141,7 +205,7 @@ def run_job(rid, targets, args):
             if early_stop:
                 p.terminate()
             try:
-                p.communicate((NL.join(targets) + NL).encode(), timeout=TIMEOUT)
+                p.communicate((NL.join(targets) + NL).encode(), timeout=timeout)
                 code = p.returncode
                 status = 'success' if code == 0 else 'failed'
             except subprocess.TimeoutExpired:
@@ -168,6 +232,7 @@ def start_job(form):
     args = build_args(form)
     if '-intensive' in args and not ALLOWED:
         raise ValueError('-intensive ist nur mit gesetzter ALLOWED_HOSTS-Liste (oder *) erlaubt')
+    timeout = clamp(form, 'rt', 1, 1440, max(1, TIMEOUT // 60)) * 60
     rid = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8]
     with LOCK:
         if CURRENT['id']:
@@ -175,8 +240,8 @@ def start_job(form):
         CURRENT.update(id=rid, proc=None, stop=False)
     try:
         (RUNS / rid).mkdir(parents=True, mode=0o700)
-        save_meta(rid, {'id': rid, 'created': now(), 'targets': targets, 'args': args, 'status': 'running'})
-        threading.Thread(target=run_job, args=(rid, targets, args), daemon=True).start()
+        save_meta(rid, {'id': rid, 'created': now(), 'targets': targets, 'args': args, 'timeout_s': timeout, 'status': 'running'})
+        threading.Thread(target=run_job, args=(rid, targets, args, timeout), daemon=True).start()
     except Exception:
         with LOCK:
             CURRENT.update(id=None, proc=None, stop=False)
@@ -281,7 +346,7 @@ def report_page(csrf, rid):
     args = m.get('args', [])
     st = m.get('status', '?')
     b = top(csrf) + '<p><a href=/run/' + rid + '>Zurueck zum Lauf</a></p><h1>Ergebnisbericht</h1>'
-    b += '<p>Lauf ' + esc(rid) + ' | Status: <b>' + esc(st) + '</b></p>'
+    b += '<p>Lauf ' + esc(rid) + ' | Status: <b>' + esc(st) + '</b> <small>' + esc(expiry_label(m)) + '</small></p>'
     if st == 'running':
         b += '<p class=warn>Der Scan laeuft noch. Der Bericht zeigt den bisherigen Zwischenstand.</p>'
     if r['bad']:
@@ -336,12 +401,37 @@ def login_page(err=''):
     return page('Login', b)
 
 
-def num(name, label, default, lo, hi):
-    return '<label>' + label + '<input type=number name=' + name + ' value=' + str(default) + ' min=' + str(lo) + ' max=' + str(hi) + '></label>'
+def tip(key):
+    o = OPT[key]
+    text = 'Pro: ' + o[1] + '. Contra: ' + o[2] + '.'
+    return '<span class=tip tabindex=0 data-tip="' + esc(text) + '">?</span>'
 
 
-def chk(name, label, checked=False):
-    return '<label class=chk><input type=checkbox name=' + name + ' value=1' + (' checked' if checked else '') + '> ' + label + '</label>'
+def num(name, label, default, lo, hi, key=''):
+    return '<label>' + label + (tip(key) if key else '') + '<input type=number name=' + name + ' value=' + str(default) + ' min=' + str(lo) + ' max=' + str(hi) + '></label>'
+
+
+def chk(name, label, checked=False, key=''):
+    return '<label class=chk><input type=checkbox name=' + name + ' value=1' + (' checked' if checked else '') + '> ' + label + (tip(key) if key else '') + '</label>'
+
+
+def help_panel():
+    b = '<aside class=help><details class=card open><summary><b>Einstellungen: Kurzanleitung</b></summary>'
+    b += '<ol><li>Ziele eintragen (eine URL pro Zeile) und die Berechtigung bestaetigen.</li><li>Ein Profil waehlen (siehe unten) und nur die Suchen aktivieren, die du brauchst.</li><li>Scan starten. Waehrend des Laufs kannst du ihn stoppen.</li><li>Nach dem Lauf den Ergebnisbericht oeffnen: Zusammenfassung steht am Ende.</li></ol>'
+    b += '<h3>Optionen mit Pro und Contra</h3><dl>'
+    for o in OPT.values():
+        b += '<dt>' + esc(o[0]) + '</dt><dd><span class=pro>Pro:</span> ' + esc(o[1]) + '.<br><span class=con>Contra:</span> ' + esc(o[2]) + '.</dd>'
+    b += '</dl><h3>Profile (Empfehlung)</h3><dl>'
+    b += '<dt>Vorsichtig</dt><dd>Fremde oder empfindliche Ziele: Parallelitaet 5, Delay 1 bis 2, Tiefe 2.</dd>'
+    b += '<dt>Schnell</dt><dd>Eigene, robuste Ziele: Parallelitaet 20, Delay 0, Tiefe 3.</dd>'
+    b += '<dt>Gruendlich</dt><dd>Tiefe 3 bis 4, Secrets, Fehler und Infos an, Max. Laufzeit 120 Minuten oder mehr.</dd></dl>'
+    b += '<h3>Gut zu wissen</h3><ul><li>Max. Laufzeit gilt pro Scan, nicht pro Ziel.</li>'
+    if RETENTION_DAYS:
+        b += '<li>Laeufe werden ' + str(RETENTION_DAYS) + ' Tage nach ihrem Ende automatisch geloescht. Sichere wichtige Ergebnisse vorher (Download der stdout.log).</li>'
+    else:
+        b += '<li>Laeufe werden nicht automatisch geloescht.</li>'
+    b += '<li>Der Container hat 1 GB Arbeitsspeicher. Sehr grosse Berichte koennen daran stossen.</li></ul></details></aside>'
+    return b
 
 
 def dashboard(csrf, err='', prefill=''):
@@ -351,19 +441,20 @@ def dashboard(csrf, err='', prefill=''):
         b += '<p class=err>' + esc(err) + '</p>'
     if running:
         b += '<p class=warn>Scan laeuft: <a href=/run/' + running + '>' + running + '</a></p>'
+    b += '<div class=layout><div>'
     b += '<form method=post action=/start class=card><h2>Neuer Scan</h2><input type=hidden name=csrf value=' + csrf + '>'
     b += '<label>Ziele (eine http(s)-URL pro Zeile, max. 50)</label><textarea name=targets rows=5 required>' + esc(prefill) + '</textarea>'
-    b += '<div class=grid>' + num('c', 'Parallelitaet', 5, 1, 20) + num('d', 'Delay (s)', 1, 0, 30) + num('md', 'Max. Tiefe', 2, 1, 5) + num('t', 'Timeout (s)', 10, 1, 60) + '</div>'
-    b += '<label>Dateiendungen (Stufe 1 = interessant, 7 = unwichtig)<select name=ext><option value=0>aus</option>' + ''.join('<option value=%d>%d</option>' % (i, i) for i in range(1, 8)) + '</select></label>'
-    b += chk('e', 'Endpoints suchen (-e)', True) + chk('s', 'Secrets suchen (-s)') + chk('err', 'Fehlermeldungen suchen (-err)') + chk('info', 'Infos suchen (-info)') + chk('rua', 'Zufaelliger User-Agent (-rua)')
+    b += '<div class=grid>' + num('c', 'Parallelitaet', 5, 1, 20, 'c') + num('d', 'Delay (s)', 1, 0, 30, 'd') + num('md', 'Max. Tiefe', 2, 1, 5, 'md') + num('t', 'Timeout (s)', 10, 1, 60, 't') + num('rt', 'Max. Laufzeit (min)', max(1, TIMEOUT // 60), 1, 1440, 'rt') + '</div>'
+    b += '<label>Dateiendungen (Stufe 1 = interessant, 7 = unwichtig)' + tip('ext') + '<select name=ext><option value=0>aus</option>' + ''.join('<option value=%d>%d</option>' % (i, i) for i in range(1, 8)) + '</select></label>'
+    b += chk('e', 'Endpoints suchen (-e)', True, 'e') + chk('s', 'Secrets suchen (-s)', False, 's') + chk('err', 'Fehlermeldungen suchen (-err)', False, 'err') + chk('info', 'Infos suchen (-info)', False, 'info') + chk('rua', 'Zufaelliger User-Agent (-rua)', False, 'rua')
     if ALLOWED:
-        b += chk('intensive', 'Intensiv: Subdomains mitcrawlen (-intensive)')
+        b += chk('intensive', 'Intensiv: Subdomains mitcrawlen (-intensive)', False, 'intensive')
     b += '<hr>' + chk('authorized', 'Ich bestaetige, dass ich zum Testen aller genannten Ziele berechtigt bin.')
     b += '<button' + (' disabled' if running else '') + '>Scan starten</button></form>'
     b += '<div class=card><h2>Letzte Laeufe</h2><table><tr><th>Start (UTC)</th><th>Status</th><th>Ziele</th></tr>'
     for m in list_runs():
-        b += '<tr><td><a href=/run/' + esc(m['id']) + '>' + esc(m.get('created', m['id'])) + '</a></td><td>' + esc(m.get('status', '?')) + '</td><td>' + str(len(m.get('targets', []))) + '</td></tr>'
-    b += '</table></div>'
+        b += '<tr><td><a href=/run/' + esc(m['id']) + '>' + esc(m.get('created', m['id'])) + '</a> <small>' + esc(expiry_label(m)) + '</small></td><td>' + esc(m.get('status', '?')) + '</td><td>' + str(len(m.get('targets', []))) + '</td></tr>'
+    b += '</table></div></div>' + help_panel() + '</div>'
     return page('hAI.cariddi', b, 10 if running else 0)
 
 
@@ -374,9 +465,9 @@ def run_page(csrf, rid):
     d = RUNS / rid
     st = m.get('status', '?')
     b = top(csrf) + '<p><a href=/>Zurueck</a></p><div class=card><h2>Lauf ' + esc(rid) + '</h2>'
-    b += '<p>Status: <b>' + esc(st) + '</b> | Exit: ' + esc(str(m.get('exit_code', '-'))) + '</p>'
+    b += '<p>Status: <b>' + esc(st) + '</b> | Exit: ' + esc(str(m.get('exit_code', '-'))) + ' <small>' + esc(expiry_label(m)) + '</small></p>'
     b += '<p><a href=/run/' + rid + '/report><b>Ergebnisbericht (lesbar, mit Zusammenfassung)</b></a></p>'
-    b += '<p>Start: ' + esc(m.get('created', '')) + ' | Ende: ' + esc(m.get('finished_at', '-')) + '</p>'
+    b += '<p>Start: ' + esc(m.get('created', '')) + ' | Ende: ' + esc(m.get('finished_at', '-')) + ' | Max. Laufzeit: ' + esc(str(int(m.get('timeout_s', TIMEOUT)) // 60)) + ' min</p>'
     b += '<p>Ziele:</p><pre>' + esc(NL.join(m.get('targets', []))) + '</pre><p>Argumente: <code>' + esc(' '.join(m.get('args', []))) + '</code></p>'
     if m.get('error'):
         b += '<p class=err>' + esc(m['error']) + '</p>'
@@ -509,10 +600,13 @@ class H(http.server.BaseHTTPRequestHandler):
 
 
 def selftest():
+    global RUNS
     args = build_args({})
     assert args[:2] == ['-c', '5'] and '-json' in args
     assert RUN_ID.match('20260101T000000Z-0123abcd')
     assert mask('abcdefghijkl').startswith('abcd***')
+    assert clamp({'rt': ['5']}, 'rt', 1, 1440, 30) == 5 and clamp({'rt': ['99999']}, 'rt', 1, 1440, 30) == 1440
+    assert 'Pro:' in help_panel() and 'data-tip' in tip('c')
     sample = {'url': 'https://a.example/x', 'method': 'GET', 'status_code': 200, 'matches': {'secrets': [{'name': 'k', 'match': 'abcdefghijkl'}], 'filetype': {'extension': 'env', 'severity': 1}, 'parameters': [{'name': 'id', 'attacks': ['SQLi', 'XSS']}]}}
     with tempfile.TemporaryDirectory() as td:
         p = Path(td) / 'o.log'
@@ -521,6 +615,19 @@ def selftest():
         assert r['urls'] == 1 and r['bad'] == 1 and len(r['secrets']) == 1
         assert r['attacks'].get('SQLi') == 1 and r['files'][0][0] == 1
         assert len(table(['a'], [(str(i),) for i in range(500)]).split('<tr>')) == 502
+    if RETENTION_DAYS > 0:
+        old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=RETENTION_DAYS + 3)).isoformat(timespec='seconds')
+        fresh = now()
+        assert expiry_label({'status': 'success', 'finished_at': old}) == '(wird in Kuerze geloescht)'
+        assert expiry_label({'status': 'success', 'finished_at': fresh}).startswith('(wird geloescht in ')
+        assert expiry_label({'status': 'running'}) == '(laeuft)'
+        with tempfile.TemporaryDirectory() as td:
+            RUNS = Path(td)
+            for rid, fin in (('20200101T000000Z-0123abcd', old), ('20200102T000000Z-0123abce', fresh)):
+                (RUNS / rid).mkdir()
+                save_meta(rid, {'id': rid, 'status': 'success', 'finished_at': fin})
+            assert cleanup() == 1
+            assert not (RUNS / '20200101T000000Z-0123abcd').exists() and (RUNS / '20200102T000000Z-0123abce').exists()
     print('selftest ok')
     return 0
 
@@ -532,6 +639,7 @@ def main():
         print('ADMIN_PASSWORD fehlt oder ist kuerzer als 6 Zeichen', flush=True)
         return 2
     recover()
+    threading.Thread(target=cleanup_loop, daemon=True).start()
     srv = http.server.ThreadingHTTPServer(('0.0.0.0', int(os.getenv('PORT', '8080'))), H)
 
     def term(signum, frame):

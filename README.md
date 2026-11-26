@@ -12,20 +12,28 @@ Nach dem Deployment: `http://<Host>:8666` (Port ueber `WEB_PORT` aenderbar).
 
 - Login mit `ADMIN_PASSWORD` (Pflicht, mindestens 6 Zeichen; ohne Passwort startet der Container nicht)
 - Ziele eingeben: eine http(s)-URL pro Zeile, maximal 50, keine Zugangsdaten in URLs
-- Optionen als Formular: Parallelitaet, Delay, Tiefe, Timeout, Endpoints, Secrets, Fehler, Infos, Dateiendungen, zufaelliger User-Agent, optional Intensiv-Modus (siehe ALLOWED_HOSTS)
+- Optionen als Formular: Parallelitaet, Delay, Tiefe, Timeout pro Anfrage, Max. Laufzeit, Endpoints, Secrets, Fehler, Infos, Dateiendungen, zufaelliger User-Agent, optional Intensiv-Modus (siehe ALLOWED_HOSTS)
 - Scan starten und stoppen; es laeuft immer nur ein Scan gleichzeitig
 - Laufhistorie mit Status, Exitcode, Zielen, Argumenten, stdout/stderr (Ende der Logs, Auto-Refresh waehrend des Laufs) und Download
 - Lesbarer Ergebnisbericht pro Lauf (siehe unten)
-- Einzelne Laeufe loeschen
+- Einzelne Laeufe loeschen; alte Laeufe werden automatisch geloescht (siehe Aufbewahrung)
 - Vor jedem Start muss die Berechtigung fuer alle Ziele bestaetigt werden
 
 Es gibt bewusst kein Freitextfeld fuer beliebige Kommandozeilenargumente: Optionen werden serverseitig geprueft und in eine feste Argumentliste uebersetzt (keine Shell).
+
+## Einstellungshilfe
+
+Rechts neben dem Scan-Formular steht ein Hilfe-Panel (auf schmalen Bildschirmen darunter, einklappbar). Es enthaelt eine Kurzanleitung, zu jeder Option die Vor- und Nachteile (Pro/Contra) und drei Profil-Empfehlungen (Vorsichtig, Schnell, Gruendlich). Zusaetzlich zeigt jede Option ein "?" mit denselben Pro/Contra-Hinweisen als Tooltip: per Maus-Hover oder per Tastatur-Fokus. Auf Touch-Geraeten ist das Panel der verlaessliche Weg, weil es dort keinen Hover gibt.
+
+## Aufbewahrung
+
+Laeufe werden `RETENTION_DAYS` Tage (Standard 7) nach ihrem Ende automatisch geloescht; geprueft wird beim Start und danach stuendlich. Hinter jedem Lauf steht "(wird geloescht in x Tagen)". Laufende Scans werden nie geloescht. `RETENTION_DAYS=0` schaltet das automatische Loeschen aus. Wichtige Ergebnisse vorher ueber den Download der stdout.log sichern.
 
 ## Ergebnisbericht
 
 Auf der Seite eines Laufs fuehrt der Link "Ergebnisbericht" zu einer aufbereiteten Auswertung der Cariddi-JSON-Ausgabe (`stdout.log`). Die Abschnitte folgen in dieser Reihenfolge: Secrets, Fehlermeldungen, Infos, auffaellige Parameter (mit moeglichen Angriffsarten laut Cariddi-Heuristik), interessante Dateien nach Stufe (1 = sehr interessant, 7 = unwichtig). Am Ende steht die Zusammenfassung mit Kennzahlen (Status, Dauer, Ziele, URLs, Hosts, Treffer je Kategorie), HTTP-Statuscodes, Top-10-Hosts, Angriffsarten, Dateien nach Stufe und Hinweisen.
 
-- Der Bericht zeigt immer alle Treffer: es gibt kein Zeilenlimit und keine Groessengrenze. Bei sehr grossen Laeufen (viele Zehntausend Treffer) kann der Seitenaufbau langsam sein und mehr Arbeitsspeicher brauchen; die Rohdaten stehen weiterhin in `stdout.log`.
+- Der Bericht zeigt immer alle Treffer: es gibt kein Zeilenlimit und keine Groessengrenze. Bei sehr grossen Laeufen (viele Zehntausend Treffer) kann der Seitenaufbau langsam sein und mehr Arbeitsspeicher brauchen (Containerlimit 1 GB); die Rohdaten stehen weiterhin in `stdout.log`.
 - Secret-Treffer werden gekuerzt angezeigt (erste 4 Zeichen und Laenge); der volle Wert steht nur in der heruntergeladenen `stdout.log`.
 - Der Bericht weist darauf hin, welche Suchen im Lauf nicht aktiviert waren. Ein leerer Abschnitt dort bedeutet "nicht gesucht".
 - Treffer sind Kandidaten der Cariddi-Heuristik und keine bestaetigten Schwachstellen; Fehlalarme sind moeglich. Keine Treffer ist kein Sicherheitsnachweis.
@@ -37,7 +45,7 @@ Der Stack haengt am externen Docker-Netzwerk `highfishNetwork`. Dieses Netzwerk 
 
 ## Build und Deployment
 
-Push auf main startet `.github/workflows/build.yml`: Python-Syntax, Compose-Validierung, Selftest (inklusive Ergebnis-Parser), HTTP-Smoke-Test (Healthcheck und Login-Redirect) und anschliessend Veroeffentlichung fuer AMD64/ARM64 nach `ghcr.io/jbkunama1/hai.cariddi` (Tags `latest`, `sha-<commit>`, `v*`). Ein Commit ist noch kein erfolgreicher Build: erst den gruenen Workflow und das Package pruefen. GHCR-Pakete koennen anfangs privat sein: Sichtbarkeit auf oeffentlich stellen oder GHCR in Portainer mit einem Token (read:packages) hinterlegen.
+Push auf main startet `.github/workflows/build.yml`: Python-Syntax, Compose-Validierung, Selftest (inklusive Ergebnis-Parser, Aufbewahrung und Hilfe-Panel), HTTP-Smoke-Test (Healthcheck und Login-Redirect) und anschliessend Veroeffentlichung fuer AMD64/ARM64 nach `ghcr.io/jbkunama1/hai.cariddi` (Tags `latest`, `sha-<commit>`, `v*`). Ein Commit ist noch kein erfolgreicher Build: erst den gruenen Workflow und das Package pruefen. GHCR-Pakete koennen anfangs privat sein: Sichtbarkeit auf oeffentlich stellen oder GHCR in Portainer mit einem Token (read:packages) hinterlegen.
 
 Portainer: Stacks > Add stack > Repository
 
@@ -58,8 +66,11 @@ Portainer: Stacks > Add stack > Repository
 | ALLOWED_HOSTS | leer | Komma-Liste erlaubter Domains inkl. Subdomains (z. B. `example.com`). Leer: alle oeffentlichen Hosts erlaubt, aber ohne Intensiv-Modus. `*`: alle Hosts erlaubt und Intensiv-Modus (-intensive) freigeschaltet |
 | ALLOW_PRIVATE_TARGETS | false | true erlaubt private/lokale Adressen (Heimnetz-Ziele) |
 | COOKIE_SECURE | false | true setzen, sobald die UI nur ueber HTTPS erreichbar ist |
-| SCAN_TIMEOUT_SECONDS | 1800 | Maximale Laufzeit eines Scans (60 bis 86400) |
+| SCAN_TIMEOUT_SECONDS | 1800 | Vorgabewert des Formularfelds "Max. Laufzeit" (60 bis 86400); pro Scan im Formular aenderbar (1 bis 1440 Minuten) |
+| RETENTION_DAYS | 7 | Tage bis zum automatischen Loeschen beendeter Laeufe; 0 = nie |
 | IMAGE_TAG | latest | Fuer reproduzierbare Deployments sha-Tag verwenden |
+
+Das Speicherlimit des Containers ist in der Compose-Datei auf 1 GB (`mem_limit: 1g`) gesetzt, dazu 1 CPU und 128 Prozesse.
 
 ## Sicherheit
 
@@ -70,13 +81,16 @@ Portainer: Stacks > Add stack > Repository
 - Ziele werden per DNS aufgeloest; nicht-oeffentliche Adressen (localhost, RFC1918, Link-Local) sind standardmaessig blockiert. Das ist keine vollstaendige Netzwerkgrenze: Redirects, spaetere DNS-Aenderungen und gefundene Links koennen auf andere Hosts fuehren. Fuer strikte Scopes zusaetzlich ausgehenden Verkehr per Firewall begrenzen.
 - Andere Container im Netzwerk highfishNetwork koennen die Oberflaeche ebenfalls erreichen; ALLOW_PRIVATE_TARGETS=true erlaubt zudem Scans gegen interne Docker-Adressen. Nur bewusst aktivieren.
 - Sessions liegen im Speicher: ein Neustart meldet alle ab.
-- Nur eigene oder schriftlich freigegebene Ziele pruefen. Ergebnisse (Logs mit moeglichen Secrets) liegen im Volume `cariddi_data` unter `/data/runs`; Zugriff beschraenken, nicht committen, Backups schuetzen. Es gibt keine automatische Loeschung.
+- Nur eigene oder schriftlich freigegebene Ziele pruefen. Ergebnisse (Logs mit moeglichen Secrets) liegen im Volume `cariddi_data` unter `/data/runs`; Zugriff beschraenken, nicht committen, Backups schuetzen. Alte Laeufe werden nach `RETENTION_DAYS` automatisch geloescht; Kopien, die du heruntergeladen hast, bleiben bei dir.
 
 ## Diagnose
 
 - Container startet nicht: Logs pruefen; `ADMIN_PASSWORD` fehlt oder ist zu kurz, oder Compose meldet die Pflichtvariable.
 - Deployment meldet `network highfishNetwork not found`: Netzwerk in Portainer anlegen (Name exakt, gleiche Gross-/Kleinschreibung) und Stack neu deployen.
 - Option Intensiv fehlt in der UI: `ALLOWED_HOSTS` ist leer; auf `*` oder eine Domain-Liste setzen und Stack neu deployen.
+- Scan endet mit Status `timeout`: Max. Laufzeit im Formular erhoehen (bis 1440 Minuten) oder Tiefe/Scope verkleinern.
+- Container wird beendet (Exit 137, OOM): Speicherlimit erreicht; weniger Parallelitaet, kleinere Scans oder `mem_limit` in der Compose-Datei erhoehen.
+- Lauf ist verschwunden: automatisch nach `RETENTION_DAYS` geloescht.
 - Bericht ist leer: Lauf pruefen (Status, stderr), und ob Endpoints/Secrets/Fehler/Infos im Lauf aktiviert waren; der Bericht nennt nicht aktivierte Suchen.
 - Login nicht moeglich nach HTTPS-Umstellung: `COOKIE_SECURE=true` nur mit HTTPS setzen.
 - manifest unknown: GHCR-Build/Tag pruefen; unauthorized: Package-Sichtbarkeit oder Portainer-Registry-Login pruefen.
