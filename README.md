@@ -16,7 +16,7 @@ Nach dem Deployment: `http://<Host>:8666` (Port ueber `WEB_PORT` aenderbar).
 - Scan starten und stoppen; es laeuft immer nur ein Scan gleichzeitig
 - Laufhistorie mit Status, Exitcode, Zielen, Argumenten, stdout/stderr (Ende der Logs, Auto-Refresh waehrend des Laufs) und Download
 - Lesbarer Ergebnisbericht pro Lauf (siehe unten)
-- Einzelne Laeufe loeschen; alte Laeufe werden automatisch geloescht (siehe Aufbewahrung)
+- Laeufe loeschen: Button je Lauf in der Liste, Button "Alle beendeten Laeufe loeschen" und Button auf der Laufseite; vor jedem Loeschen kommt eine Rueckfrage. Alte Laeufe werden zusaetzlich automatisch geloescht (siehe Aufbewahrung)
 - Vor jedem Start muss die Berechtigung fuer alle Ziele bestaetigt werden
 
 Es gibt bewusst kein Freitextfeld fuer beliebige Kommandozeilenargumente: Optionen werden serverseitig geprueft und in eine feste Argumentliste uebersetzt (keine Shell).
@@ -25,9 +25,11 @@ Es gibt bewusst kein Freitextfeld fuer beliebige Kommandozeilenargumente: Option
 
 Rechts neben dem Scan-Formular steht ein Hilfe-Panel (auf schmalen Bildschirmen darunter, einklappbar). Es enthaelt eine Kurzanleitung, zu jeder Option die Vor- und Nachteile (Pro/Contra) und drei Profil-Empfehlungen (Vorsichtig, Schnell, Gruendlich). Zusaetzlich zeigt jede Option ein "?" mit denselben Pro/Contra-Hinweisen als Tooltip: per Maus-Hover oder per Tastatur-Fokus. Auf Touch-Geraeten ist das Panel der verlaessliche Weg, weil es dort keinen Hover gibt.
 
-## Aufbewahrung
+## Aufbewahrung und Loeschen
 
-Laeufe werden `RETENTION_DAYS` Tage (Standard 7) nach ihrem Ende automatisch geloescht; geprueft wird beim Start und danach stuendlich. Hinter jedem Lauf steht "(wird geloescht in x Tagen)". Laufende Scans werden nie geloescht. `RETENTION_DAYS=0` schaltet das automatische Loeschen aus. Wichtige Ergebnisse vorher ueber den Download der stdout.log sichern.
+Laeufe werden `RETENTION_DAYS` Tage (Standard 7) nach ihrem Ende automatisch geloescht; geprueft wird beim Start und danach stuendlich. Hinter jedem Lauf steht "(wird geloescht in x Tagen)". Laufende Scans werden nie geloescht. `RETENTION_DAYS=0` schaltet das automatische Loeschen aus.
+
+Manuell loeschen: Der Button "Loeschen" in der Lauf-Liste (und auf der Laufseite) entfernt einen Lauf, "Alle beendeten Laeufe loeschen" entfernt alle beendeten Laeufe auf einmal. Beides fragt vorher auf einer Bestaetigungsseite nach (ohne JavaScript) und ist endgueltig. Ein laufender Scan kann nicht geloescht werden; stoppe ihn zuerst. Wichtige Ergebnisse vorher ueber den Download der stdout.log sichern.
 
 ## Ergebnisbericht
 
@@ -45,7 +47,7 @@ Der Stack haengt am externen Docker-Netzwerk `highfishNetwork`. Dieses Netzwerk 
 
 ## Build und Deployment
 
-Push auf main startet `.github/workflows/build.yml`: Python-Syntax, Compose-Validierung, Selftest (inklusive Ergebnis-Parser, Aufbewahrung und Hilfe-Panel), HTTP-Smoke-Test (Healthcheck und Login-Redirect) und anschliessend Veroeffentlichung fuer AMD64/ARM64 nach `ghcr.io/jbkunama1/hai.cariddi` (Tags `latest`, `sha-<commit>`, `v*`). Ein Commit ist noch kein erfolgreicher Build: erst den gruenen Workflow und das Package pruefen. GHCR-Pakete koennen anfangs privat sein: Sichtbarkeit auf oeffentlich stellen oder GHCR in Portainer mit einem Token (read:packages) hinterlegen.
+Push auf main startet `.github/workflows/build.yml`: Python-Syntax, Compose-Validierung, Selftest (inklusive Ergebnis-Parser, Aufbewahrung, Loeschfunktionen und Hilfe-Panel), HTTP-Smoke-Test (Healthcheck und Login-Redirect) und anschliessend Veroeffentlichung fuer AMD64/ARM64 nach `ghcr.io/jbkunama1/hai.cariddi` (Tags `latest`, `sha-<commit>`, `v*`). Ein Commit ist noch kein erfolgreicher Build: erst den gruenen Workflow und das Package pruefen. GHCR-Pakete koennen anfangs privat sein: Sichtbarkeit auf oeffentlich stellen oder GHCR in Portainer mit einem Token (read:packages) hinterlegen.
 
 Portainer: Stacks > Add stack > Repository
 
@@ -90,7 +92,8 @@ Das Speicherlimit des Containers ist in der Compose-Datei auf 1 GB (`mem_limit: 
 - Option Intensiv fehlt in der UI: `ALLOWED_HOSTS` ist leer; auf `*` oder eine Domain-Liste setzen und Stack neu deployen.
 - Scan endet mit Status `timeout`: Max. Laufzeit im Formular erhoehen (bis 1440 Minuten) oder Tiefe/Scope verkleinern.
 - Container wird beendet (Exit 137, OOM): Speicherlimit erreicht; weniger Parallelitaet, kleinere Scans oder `mem_limit` in der Compose-Datei erhoehen.
-- Lauf ist verschwunden: automatisch nach `RETENTION_DAYS` geloescht.
+- Lauf ist verschwunden: automatisch nach `RETENTION_DAYS` oder manuell geloescht.
+- Loeschen-Button fehlt bei einem Lauf: der Scan laeuft noch; erst stoppen.
 - Bericht ist leer: Lauf pruefen (Status, stderr), und ob Endpoints/Secrets/Fehler/Infos im Lauf aktiviert waren; der Bericht nennt nicht aktivierte Suchen.
 - Login nicht moeglich nach HTTPS-Umstellung: `COOKIE_SECURE=true` nur mit HTTPS setzen.
 - manifest unknown: GHCR-Build/Tag pruefen; unauthorized: Package-Sichtbarkeit oder Portainer-Registry-Login pruefen.

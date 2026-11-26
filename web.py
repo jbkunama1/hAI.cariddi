@@ -36,7 +36,7 @@ SESSIONS = {}
 FAILS = {}
 esc = html.escape
 CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-CSS = 'body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;margin:0}main{max-width:1200px;margin:auto;padding:1rem}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}.card{background:#1e293b;border-radius:10px;padding:1rem;margin-bottom:1rem}label{display:block;margin:.5rem 0 .2rem}input,select,textarea{width:100%;box-sizing:border-box;padding:.5rem;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0}.chk{display:flex;gap:.5rem;align-items:center}.chk input{width:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.5rem}button{margin-top:1rem;padding:.6rem 1.2rem;border:0;border-radius:6px;background:#2563eb;color:#fff;font-size:1rem}button.danger{background:#dc2626}button.link{background:none;margin:0;color:#93c5fd}a{color:#93c5fd}pre{background:#0f172a;padding:.6rem;border-radius:6px;overflow:auto;max-height:22rem;white-space:pre-wrap;word-break:break-all}.err{background:#7f1d1d;padding:.6rem;border-radius:6px}.warn{background:#78350f;padding:.6rem;border-radius:6px}.sum{border:2px solid #2563eb}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.4rem;border-bottom:1px solid #334155;word-break:break-all}small{color:#94a3b8}.layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:1rem;align-items:start}.help{position:sticky;top:1rem}.help dt{font-weight:600;margin-top:.7rem}.help dd{margin:0;font-size:.9rem}.help summary{cursor:pointer}.pro{color:#86efac}.con{color:#fca5a5}.tip{display:inline-block;position:relative;margin-left:.4rem;width:1.2rem;height:1.2rem;line-height:1.2rem;text-align:center;border-radius:50%;background:#334155;font-size:.8rem;cursor:help}.tip:hover::after,.tip:focus::after{content:attr(data-tip);position:absolute;left:1.6rem;top:-.4rem;width:270px;background:#020617;border:1px solid #475569;padding:.5rem;border-radius:6px;z-index:10;font-size:.85rem;white-space:normal;text-align:left;line-height:1.35}@media(max-width:900px){.layout{grid-template-columns:1fr}.help{position:static}}'
+CSS = 'body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;margin:0}main{max-width:1200px;margin:auto;padding:1rem}header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}.card{background:#1e293b;border-radius:10px;padding:1rem;margin-bottom:1rem}label{display:block;margin:.5rem 0 .2rem}input,select,textarea{width:100%;box-sizing:border-box;padding:.5rem;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0}.chk{display:flex;gap:.5rem;align-items:center}.chk input{width:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.5rem}button{margin-top:1rem;padding:.6rem 1.2rem;border:0;border-radius:6px;background:#2563eb;color:#fff;font-size:1rem}button.danger{background:#dc2626}button.sm{margin:0;padding:.25rem .6rem;font-size:.85rem}form.inl{display:inline;margin:0}button.link{background:none;margin:0;color:#93c5fd}a{color:#93c5fd}pre{background:#0f172a;padding:.6rem;border-radius:6px;overflow:auto;max-height:22rem;white-space:pre-wrap;word-break:break-all}.err{background:#7f1d1d;padding:.6rem;border-radius:6px}.warn{background:#78350f;padding:.6rem;border-radius:6px}.sum{border:2px solid #2563eb}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.4rem;border-bottom:1px solid #334155;word-break:break-all}small{color:#94a3b8}.layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:1rem;align-items:start}.help{position:sticky;top:1rem}.help dt{font-weight:600;margin-top:.7rem}.help dd{margin:0;font-size:.9rem}.help summary{cursor:pointer}.pro{color:#86efac}.con{color:#fca5a5}.tip{display:inline-block;position:relative;margin-left:.4rem;width:1.2rem;height:1.2rem;line-height:1.2rem;text-align:center;border-radius:50%;background:#334155;font-size:.8rem;cursor:help}.tip:hover::after,.tip:focus::after{content:attr(data-tip);position:absolute;left:1.6rem;top:-.4rem;width:270px;background:#020617;border:1px solid #475569;padding:.5rem;border-radius:6px;z-index:10;font-size:.85rem;white-space:normal;text-align:left;line-height:1.35}@media(max-width:900px){.layout{grid-template-columns:1fr}.help{position:static}}'
 
 OPT = {
     'c': ('Parallelitaet (-c)', 'schneller, weil mehr Anfragen gleichzeitig laufen', 'mehr Last auf dem Ziel; Risiko von Sperren, Rate-Limits und Fehlern'),
@@ -131,6 +131,17 @@ def list_runs(limit=30):
         return []
     ids = sorted((p.name for p in RUNS.iterdir() if RUN_ID.match(p.name)), reverse=True)[:limit]
     return [m for m in (load_meta(i) for i in ids) if m]
+
+
+def finished_ids():
+    out = []
+    if RUNS.exists():
+        for p in RUNS.iterdir():
+            if RUN_ID.match(p.name) and p.name != CURRENT['id']:
+                m = load_meta(p.name)
+                if m and m.get('status') != 'running':
+                    out.append(p.name)
+    return sorted(out)
 
 
 def recover():
@@ -401,6 +412,12 @@ def login_page(err=''):
     return page('Login', b)
 
 
+def confirm_page(csrf, action, text, label):
+    b = top(csrf) + '<div class=card><h2>Wirklich loeschen?</h2><p>' + esc(text) + '</p><p class=warn>Das kann nicht rueckgaengig gemacht werden. Wichtige Ergebnisse vorher als stdout.log herunterladen.</p>'
+    b += '<form method=post action=' + action + '><input type=hidden name=csrf value=' + csrf + '><input type=hidden name=confirm value=1><button class=danger>' + esc(label) + '</button></form><p><a href=/>Abbrechen</a></p></div>'
+    return page('Loeschen bestaetigen', b)
+
+
 def tip(key):
     o = OPT[key]
     text = 'Pro: ' + o[1] + '. Contra: ' + o[2] + '.'
@@ -427,9 +444,9 @@ def help_panel():
     b += '<dt>Gruendlich</dt><dd>Tiefe 3 bis 4, Secrets, Fehler und Infos an, Max. Laufzeit 120 Minuten oder mehr.</dd></dl>'
     b += '<h3>Gut zu wissen</h3><ul><li>Max. Laufzeit gilt pro Scan, nicht pro Ziel.</li>'
     if RETENTION_DAYS:
-        b += '<li>Laeufe werden ' + str(RETENTION_DAYS) + ' Tage nach ihrem Ende automatisch geloescht. Sichere wichtige Ergebnisse vorher (Download der stdout.log).</li>'
+        b += '<li>Laeufe werden ' + str(RETENTION_DAYS) + ' Tage nach ihrem Ende automatisch geloescht. Sichere wichtige Ergebnisse vorher (Download der stdout.log). Manuell loeschen geht in der Lauf-Liste.</li>'
     else:
-        b += '<li>Laeufe werden nicht automatisch geloescht.</li>'
+        b += '<li>Laeufe werden nicht automatisch geloescht. Manuell loeschen geht in der Lauf-Liste.</li>'
     b += '<li>Der Container hat 1 GB Arbeitsspeicher. Sehr grosse Berichte koennen daran stossen.</li></ul></details></aside>'
     return b
 
@@ -451,10 +468,17 @@ def dashboard(csrf, err='', prefill=''):
         b += chk('intensive', 'Intensiv: Subdomains mitcrawlen (-intensive)', False, 'intensive')
     b += '<hr>' + chk('authorized', 'Ich bestaetige, dass ich zum Testen aller genannten Ziele berechtigt bin.')
     b += '<button' + (' disabled' if running else '') + '>Scan starten</button></form>'
-    b += '<div class=card><h2>Letzte Laeufe</h2><table><tr><th>Start (UTC)</th><th>Status</th><th>Ziele</th></tr>'
+    b += '<div class=card><h2>Letzte Laeufe</h2><table><tr><th>Start (UTC)</th><th>Status</th><th>Ziele</th><th></th></tr>'
+    any_done = False
     for m in list_runs():
-        b += '<tr><td><a href=/run/' + esc(m['id']) + '>' + esc(m.get('created', m['id'])) + '</a> <small>' + esc(expiry_label(m)) + '</small></td><td>' + esc(m.get('status', '?')) + '</td><td>' + str(len(m.get('targets', []))) + '</td></tr>'
-    b += '</table></div></div>' + help_panel() + '</div>'
+        done = m.get('status') != 'running'
+        any_done = any_done or done
+        act = '<form method=post action=/delete/' + esc(m['id']) + ' class=inl><input type=hidden name=csrf value=' + csrf + '><button class="danger sm">Loeschen</button></form>' if done else '-'
+        b += '<tr><td><a href=/run/' + esc(m['id']) + '>' + esc(m.get('created', m['id'])) + '</a> <small>' + esc(expiry_label(m)) + '</small></td><td>' + esc(m.get('status', '?')) + '</td><td>' + str(len(m.get('targets', []))) + '</td><td>' + act + '</td></tr>'
+    b += '</table>'
+    if any_done:
+        b += '<form method=post action=/delete-all><input type=hidden name=csrf value=' + csrf + '><button class="danger sm">Alle beendeten Laeufe loeschen</button></form>'
+    b += '</div></div>' + help_panel() + '</div>'
     return page('hAI.cariddi', b, 10 if running else 0)
 
 
@@ -593,7 +617,21 @@ class H(http.server.BaseHTTPRequestHandler):
             return self.redirect('/')
         if path.startswith('/delete/'):
             rid = path[len('/delete/'):]
-            if RUN_ID.match(rid) and CURRENT['id'] != rid and (RUNS / rid).is_dir():
+            if not (RUN_ID.match(rid) and (RUNS / rid).is_dir()):
+                return self.redirect('/')
+            if CURRENT['id'] == rid:
+                return self.send(400, dashboard(s['csrf'], 'Ein laufender Scan kann nicht geloescht werden. Stoppe ihn zuerst.'))
+            if val(f, 'confirm') != '1':
+                return self.send(200, confirm_page(s['csrf'], '/delete/' + rid, 'Lauf ' + rid + ' mit allen Ergebnissen loeschen?', 'Ja, endgueltig loeschen'))
+            shutil.rmtree(RUNS / rid, ignore_errors=True)
+            return self.redirect('/')
+        if path == '/delete-all':
+            ids = finished_ids()
+            if not ids:
+                return self.redirect('/')
+            if val(f, 'confirm') != '1':
+                return self.send(200, confirm_page(s['csrf'], '/delete-all', 'Alle ' + str(len(ids)) + ' beendeten Laeufe mit allen Ergebnissen loeschen? Ein laufender Scan bleibt erhalten.', 'Ja, alle endgueltig loeschen'))
+            for rid in ids:
                 shutil.rmtree(RUNS / rid, ignore_errors=True)
             return self.redirect('/')
         self.send(404, 'nicht gefunden', 'text/plain')
@@ -607,6 +645,7 @@ def selftest():
     assert mask('abcdefghijkl').startswith('abcd***')
     assert clamp({'rt': ['5']}, 'rt', 1, 1440, 30) == 5 and clamp({'rt': ['99999']}, 'rt', 1, 1440, 30) == 1440
     assert 'Pro:' in help_panel() and 'data-tip' in tip('c')
+    assert 'name=confirm' in confirm_page('x', '/delete-all', 'T', 'L')
     sample = {'url': 'https://a.example/x', 'method': 'GET', 'status_code': 200, 'matches': {'secrets': [{'name': 'k', 'match': 'abcdefghijkl'}], 'filetype': {'extension': 'env', 'severity': 1}, 'parameters': [{'name': 'id', 'attacks': ['SQLi', 'XSS']}]}}
     with tempfile.TemporaryDirectory() as td:
         p = Path(td) / 'o.log'
@@ -615,6 +654,12 @@ def selftest():
         assert r['urls'] == 1 and r['bad'] == 1 and len(r['secrets']) == 1
         assert r['attacks'].get('SQLi') == 1 and r['files'][0][0] == 1
         assert len(table(['a'], [(str(i),) for i in range(500)]).split('<tr>')) == 502
+    with tempfile.TemporaryDirectory() as td:
+        RUNS = Path(td)
+        for rid, stt in (('20200101T000000Z-0123abcd', 'success'), ('20200102T000000Z-0123abce', 'running')):
+            (RUNS / rid).mkdir()
+            save_meta(rid, {'id': rid, 'status': stt})
+        assert finished_ids() == ['20200101T000000Z-0123abcd']
     if RETENTION_DAYS > 0:
         old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=RETENTION_DAYS + 3)).isoformat(timespec='seconds')
         fresh = now()
