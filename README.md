@@ -25,10 +25,11 @@ Es gibt bewusst kein Freitextfeld fuer beliebige Kommandozeilenargumente: Option
 
 Auf der Seite eines Laufs fuehrt der Link "Ergebnisbericht" zu einer aufbereiteten Auswertung der Cariddi-JSON-Ausgabe (`stdout.log`). Die Abschnitte folgen in dieser Reihenfolge: Secrets, Fehlermeldungen, Infos, auffaellige Parameter (mit moeglichen Angriffsarten laut Cariddi-Heuristik), interessante Dateien nach Stufe (1 = sehr interessant, 7 = unwichtig). Am Ende steht die Zusammenfassung mit Kennzahlen (Status, Dauer, Ziele, URLs, Hosts, Treffer je Kategorie), HTTP-Statuscodes, Top-10-Hosts, Angriffsarten, Dateien nach Stufe und Hinweisen.
 
+- Der Bericht zeigt immer alle Treffer: es gibt kein Zeilenlimit und keine Groessengrenze. Bei sehr grossen Laeufen (viele Zehntausend Treffer) kann der Seitenaufbau langsam sein und mehr Arbeitsspeicher brauchen; die Rohdaten stehen weiterhin in `stdout.log`.
 - Secret-Treffer werden gekuerzt angezeigt (erste 4 Zeichen und Laenge); der volle Wert steht nur in der heruntergeladenen `stdout.log`.
 - Der Bericht weist darauf hin, welche Suchen im Lauf nicht aktiviert waren. Ein leerer Abschnitt dort bedeutet "nicht gesucht".
 - Treffer sind Kandidaten der Cariddi-Heuristik und keine bestaetigten Schwachstellen; Fehlalarme sind moeglich. Keine Treffer ist kein Sicherheitsnachweis.
-- Pro Tabelle werden maximal 200 Zeilen gezeigt; ausgewertet werden hoechstens die ersten 20 MB der Ausgabe. Laeuft ein Scan noch, zeigt der Bericht den Zwischenstand und aktualisiert sich automatisch.
+- Laeuft ein Scan noch, zeigt der Bericht den Zwischenstand und aktualisiert sich automatisch.
 
 ## Netzwerk
 

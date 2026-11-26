@@ -209,42 +209,39 @@ def mask(s):
     return s[:4] + '***' + ' (' + str(len(s)) + ' Zeichen)' if len(s) > 8 else '***'
 
 
-def parse_results(path, limit=20000000):
-    res = {'urls': 0, 'bad': 0, 'status': {}, 'hosts': {}, 'secrets': [], 'errors': [], 'infos': [], 'files': [], 'params': [], 'attacks': {}, 'truncated': False}
+def parse_results(path):
+    res = {'urls': 0, 'bad': 0, 'status': {}, 'hosts': {}, 'secrets': [], 'errors': [], 'infos': [], 'files': [], 'params': [], 'attacks': {}}
     try:
-        with open(path, 'rb') as f:
-            data = f.read(limit + 1)
+        f = open(path, 'rb')
     except OSError:
         return res
-    if len(data) > limit:
-        res['truncated'] = True
-        data = data[:limit]
-    for line in data.decode('utf-8', 'replace').split(NL):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            d = json.loads(line)
-            url = str(d['url'])
-            res['urls'] += 1
-            st = str(d.get('status_code', '?'))
-            res['status'][st] = res['status'].get(st, 0) + 1
-            host = urlsplit(url).netloc
-            res['hosts'][host] = res['hosts'].get(host, 0) + 1
-            m = d.get('matches') or {}
-            for key in ('secrets', 'errors', 'infos'):
-                for x in m.get(key) or []:
-                    res[key].append((url, str(x.get('name', '')), str(x.get('match', ''))))
-            ft = m.get('filetype')
-            if ft:
-                res['files'].append((int(ft.get('severity', 0)), str(ft.get('extension', '')), url))
-            for p in m.get('parameters') or []:
-                at = [str(a) for a in p.get('attacks') or []]
-                res['params'].append((url, str(p.get('name', '')), ', '.join(at)))
-                for a in at:
-                    res['attacks'][a] = res['attacks'].get(a, 0) + 1
-        except (TypeError, AttributeError, ValueError, KeyError):
-            res['bad'] += 1
+    with f:
+        for raw in f:
+            line = raw.decode('utf-8', 'replace').strip()
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+                url = str(d['url'])
+                res['urls'] += 1
+                st = str(d.get('status_code', '?'))
+                res['status'][st] = res['status'].get(st, 0) + 1
+                host = urlsplit(url).netloc
+                res['hosts'][host] = res['hosts'].get(host, 0) + 1
+                m = d.get('matches') or {}
+                for key in ('secrets', 'errors', 'infos'):
+                    for x in m.get(key) or []:
+                        res[key].append((url, str(x.get('name', '')), str(x.get('match', ''))))
+                ft = m.get('filetype')
+                if ft:
+                    res['files'].append((int(ft.get('severity', 0)), str(ft.get('extension', '')), url))
+                for p in m.get('parameters') or []:
+                    at = [str(a) for a in p.get('attacks') or []]
+                    res['params'].append((url, str(p.get('name', '')), ', '.join(at)))
+                    for a in at:
+                        res['attacks'][a] = res['attacks'].get(a, 0) + 1
+            except (TypeError, AttributeError, ValueError, KeyError):
+                res['bad'] += 1
     return res
 
 
@@ -258,16 +255,14 @@ def duration(m):
         return '-'
 
 
-def table(head, rows, cap=200):
+def table(head, rows):
     if not rows:
         return '<p>Keine Treffer.</p>'
-    b = '<table><tr>' + ''.join('<th>' + esc(h) + '</th>' for h in head) + '</tr>'
-    for r in rows[:cap]:
-        b += '<tr>' + ''.join('<td>' + esc(str(c)) + '</td>' for c in r) + '</tr>'
-    b += '</table>'
-    if len(rows) > cap:
-        b += '<p>Angezeigt werden die ersten ' + str(cap) + ' von ' + str(len(rows)) + ' Eintraegen. Alle Daten: stdout.log herunterladen.</p>'
-    return b
+    parts = ['<table><tr>' + ''.join('<th>' + esc(h) + '</th>' for h in head) + '</tr>']
+    for r in rows:
+        parts.append('<tr>' + ''.join('<td>' + esc(str(c)) + '</td>' for c in r) + '</tr>')
+    parts.append('</table>')
+    return ''.join(parts)
 
 
 def sev_label(n):
@@ -289,8 +284,6 @@ def report_page(csrf, rid):
     b += '<p>Lauf ' + esc(rid) + ' | Status: <b>' + esc(st) + '</b></p>'
     if st == 'running':
         b += '<p class=warn>Der Scan laeuft noch. Der Bericht zeigt den bisherigen Zwischenstand.</p>'
-    if r['truncated']:
-        b += '<p class=warn>Die Ausgabe ist sehr gross: ausgewertet wurden nur die ersten 20 MB.</p>'
     if r['bad']:
         b += '<p class=warn>' + str(r['bad']) + ' Zeilen der Ausgabe waren keine gueltigen Ergebnisse und wurden uebersprungen.</p>'
     off = [label for flag, label in (('-e', 'Endpoints'), ('-s', 'Secrets'), ('-err', 'Fehlermeldungen'), ('-info', 'Infos')) if flag not in args]
@@ -527,6 +520,7 @@ def selftest():
         r = parse_results(p)
         assert r['urls'] == 1 and r['bad'] == 1 and len(r['secrets']) == 1
         assert r['attacks'].get('SQLi') == 1 and r['files'][0][0] == 1
+        assert len(table(['a'], [(str(i),) for i in range(500)]).split('<tr>')) == 502
     print('selftest ok')
     return 0
 
